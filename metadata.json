@@ -1,0 +1,6 @@
+{
+  "name": "FinPay Pro Enterprise by mrofiqi.id",
+  "description": "Platform Manajemen Keuangan Bulanan, Tracker Harian, Keamanan 2FA, Notifikasi Push Real-Time, Dasbor Analitik Admin, Integrasi API Pihak Ketiga & Cloud Sync Lintas Perangkat.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
