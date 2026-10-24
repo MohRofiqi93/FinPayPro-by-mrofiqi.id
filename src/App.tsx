@@ -63,7 +63,12 @@ import { MonthlyBudgetView } from './components/MonthlyBudgetView';
 import { DailyTrackerView } from './components/DailyTrackerView';
 import { AccountsAndSyncView } from './components/AccountsAndSyncView';
 import { AdminEnterpriseHubView } from './components/AdminEnterpriseHubView';
-import { CreateNewMonthModal, ReviseBalanceModal } from './components/Modals';
+import {
+  ActionFeedbackPopupModal,
+  ActionPopupData,
+  CreateNewMonthModal,
+  ReviseBalanceModal,
+} from './components/Modals';
 
 const STORAGE_KEYS = {
   PERIODS: 'aurelia_finplanner_periods_v2',
@@ -677,6 +682,31 @@ export default function App() {
     ]
   );
 
+  const [actionPopup, setActionPopup] = useState<ActionPopupData | null>(null);
+
+  const triggerActionPopup = useCallback(
+    (
+      status: ActionPopupData['status'],
+      commandLabel: string,
+      title: string,
+      message: string
+    ) => {
+      setActionPopup({
+        isOpen: true,
+        status,
+        commandLabel,
+        title,
+        message,
+        timestamp: new Date().toLocaleTimeString('id-ID', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }),
+      });
+    },
+    []
+  );
+
   // Handlers for Budget, Tracker, Accounts, and Rollover
   const handleReviseOpeningBalance = (newBalance: number, reason: string) => {
     mutateActivePeriod(
@@ -684,6 +714,12 @@ export default function App() {
       'REVISE_OPENING_BALANCE',
       `Revisi Saldo Awal ${activePeriod.monthLabel} menjadi ${formatIDR(newBalance)} (${reason})`,
       { newBalance, reason }
+    );
+    triggerActionPopup(
+      'REVISED',
+      'REVISI & SIMPAN SALDO AWAL',
+      'Revisi Saldo Awal Bulan Berhasil Disimpan',
+      `Saldo Awal (Carry-Over) periode ${activePeriod.monthLabel} berhasil direvisi menjadi ${formatIDR(newBalance)} (${reason}) dan seluruh kas bersih telah dikalkulasi ulang.`
     );
   };
 
@@ -711,6 +747,12 @@ export default function App() {
     );
     setSyncQueue((prev) => [queueItem, ...prev]);
     showToast(`Periode "${newMonthLabel}" berhasil disiapkan dengan akumulasi saldo bulan lalu.`);
+    triggerActionPopup(
+      'SUCCESS',
+      'SIMPAN SHEET BULAN BARU',
+      'Rollover Sheet Bulan Baru Berhasil Disimpan',
+      `Periode baru "${newMonthLabel}" (${newPeriodId}) telah dibuat otomatis dengan akumulasi sisa saldo bersih ${formatIDR(newPeriod.openingBalanceCarryOver)}.`
+    );
   };
 
   const handleToggleFixedPaid = (id: string) => {
@@ -1509,6 +1551,7 @@ export default function App() {
             onUpdateSaving={handleUpdateSaving}
             onAddSaving={handleAddSaving}
             onToggleSpecialLiability={handleToggleSpecialLiability}
+            onTriggerPopup={triggerActionPopup}
           />
         )}
 
@@ -1522,6 +1565,7 @@ export default function App() {
             onAddHangoutExpense={handleAddHangoutExpense}
             onUpdateHangoutExpense={handleUpdateHangoutExpense}
             onDeleteHangoutExpense={handleDeleteHangoutExpense}
+            onTriggerPopup={triggerActionPopup}
           />
         )}
 
@@ -1540,6 +1584,7 @@ export default function App() {
             onReviseAccountBalance={handleReviseAccountBalance}
             onExportCSV={handleExportCSV}
             onPrintPDF={() => window.print()}
+            onTriggerPopup={triggerActionPopup}
           />
         )}
 
@@ -1640,6 +1685,14 @@ export default function App() {
         period={activePeriod}
         summary={activeSummary}
         onClose={() => setIsReviseModalOpen(false)}
+        onCancel={() =>
+          triggerActionPopup(
+            'CANCELLED',
+            'BATAL REVISI SALDO AWAL (CANCEL)',
+            'Revisi Saldo Awal Dibatalkan (Cancel)',
+            `Perubahan pada Saldo Awal periode ${activePeriod.monthLabel} telah dibatalkan. Saldo awal tetap ${formatIDR(activePeriod.openingBalanceCarryOver)}.`
+          )
+        }
         onSaveRevision={handleReviseOpeningBalance}
       />
 
@@ -1649,7 +1702,20 @@ export default function App() {
         sourceSummary={calculatePeriodSummary(periods[periods.length - 1])}
         existingPeriods={periods}
         onClose={() => setIsNewMonthModalOpen(false)}
+        onCancel={() =>
+          triggerActionPopup(
+            'CANCELLED',
+            'BATAL BUAT BULAN BARU (CANCEL)',
+            'Pembuatan Sheet Bulan Baru Dibatalkan (Cancel)',
+            'Proses rollover pembuatan sheet periode baru dibatalkan oleh pengguna.'
+          )
+        }
         onCreateMonth={handleCreateNewMonth}
+      />
+
+      <ActionFeedbackPopupModal
+        popup={actionPopup}
+        onClose={() => setActionPopup(null)}
       />
     </div>
   );

@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import {
+  ChevronDown,
   Coffee,
+  Download,
   Edit3,
+  FileSpreadsheet,
+  FileText,
+  Image as ImageIcon,
   Plus,
   Save,
   Search,
@@ -17,6 +22,8 @@ import {
   PeriodFinancialSummary,
 } from '../types/finance';
 import { computeDailyExpenseTotal, formatCompactIDR, formatIDR } from '../utils/calculations';
+import { TrackerExportFormat, triggerTrackerExportDownload } from '../utils/exportFormats';
+import { ActionPopupData } from './Modals';
 
 interface DailyTrackerViewProps {
   period: MonthlyPeriodData;
@@ -27,6 +34,12 @@ interface DailyTrackerViewProps {
   onAddHangoutExpense: (item: Omit<HangoutExpenseItem, 'id' | 'updatedAt'>) => void;
   onUpdateHangoutExpense: (item: HangoutExpenseItem) => void;
   onDeleteHangoutExpense: (id: string) => void;
+  onTriggerPopup?: (
+    status: ActionPopupData['status'],
+    commandLabel: string,
+    title: string,
+    message: string
+  ) => void;
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = ['BRI', 'BCA', 'BSI', 'COD', 'TF', 'GOPAY', 'DANA'];
@@ -40,6 +53,7 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
   onAddHangoutExpense,
   onUpdateHangoutExpense,
   onDeleteHangoutExpense,
+  onTriggerPopup,
 }) => {
   // Form State: New Daily Expense
   const [date, setDate] = useState('26/10/26');
@@ -78,32 +92,60 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
   const [editHangoutMethod, setEditHangoutMethod] = useState<PaymentMethod>('GOPAY');
   const [editHangoutNote, setEditHangoutNote] = useState('');
 
+  // Export Chooser Menu State (Next to Jajan De Aira + Nabung)
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+
   const computedTotal = computeDailyExpenseTotal(Number(qty) || 0, Number(unitPrice) || 0);
   const computedEditTotal = computeDailyExpenseTotal(Number(editQty) || 0, Number(editUnitPrice) || 0);
+
+  const handleExportFormat = (format: TrackerExportFormat) => {
+    const res = triggerTrackerExportDownload(format, period, summary, tagFilter);
+    setIsExportMenuOpen(false);
+    onTriggerPopup?.(
+      'SUCCESS',
+      `EKSPOR ${format}`,
+      `Berhasil Ekspor ke ${res.formatLabel}`,
+      `Berkas "${res.filename}" (${res.count} transaksi pada periode ${period.monthLabel}) telah berhasil dibuat dan diunduh ke perangkat Anda.`
+    );
+  };
 
   const handleSubmitDaily = (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) {
-      setFormError('Keterangan pengeluaran wajib diisi.');
+      const msg = 'Keterangan pengeluaran wajib diisi sebelum menyimpan transaksi.';
+      setFormError(msg);
+      onTriggerPopup?.('ERROR', 'SIMPAN TRANSAKSI', 'Gagal Menyimpan Transaksi', msg);
       return;
     }
     const numericQty = Number(qty);
     const numericPrice = Number(unitPrice);
     if (!Number.isFinite(numericQty) || numericQty <= 0 || !Number.isFinite(numericPrice) || numericPrice < 0) {
-      setFormError('Jumlah (Qty) dan Harga Satuan harus berupa angka valid.');
+      const msg = 'Jumlah (Qty) dan Harga Satuan harus berupa angka valid.';
+      setFormError(msg);
+      onTriggerPopup?.('ERROR', 'SIMPAN TRANSAKSI', 'Gagal Menyimpan Transaksi', msg);
       return;
     }
 
     setFormError(null);
+    const totalVal = computeDailyExpenseTotal(numericQty, numericPrice);
     onAddDailyExpense({
       date: date.trim() || '26/10/26',
       description: description.trim(),
       qty: numericQty,
       unitPrice: numericPrice,
-      total: computeDailyExpenseTotal(numericQty, numericPrice),
+      total: totalVal,
       paymentMethod,
       groupTag,
     });
+
+    onTriggerPopup?.(
+      'SUCCESS',
+      'SIMPAN TRANSAKSI',
+      'Transaksi Harian Berhasil Disimpan',
+      `Transaksi "${description.trim()}" (${numericQty}x ${formatIDR(numericPrice)} = ${formatIDR(
+        totalVal
+      )}) melalui metode ${paymentMethod} berhasil disimpan ke database.`
+    );
 
     setDescription('');
     setQty('1');
@@ -119,27 +161,64 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
     setEditMethod(item.paymentMethod === 'PILIH' ? 'BSI' : item.paymentMethod);
   };
 
+  const handleCancelEditDaily = (item: DailyExpenseItem) => {
+    setEditingDailyId(null);
+    onTriggerPopup?.(
+      'CANCELLED',
+      'BATAL REVISI (CANCEL)',
+      'Revisi Transaksi Dibatalkan',
+      `Perubahan pada transaksi "${item.description}" (${item.date}) telah dibatalkan. Data tetap aman menggunakan nilai semula (${formatIDR(
+        item.total
+      )}).`
+    );
+  };
+
   const handleSaveEditDaily = (item: DailyExpenseItem) => {
-    if (!editDescription.trim()) return;
+    if (!editDescription.trim()) {
+      onTriggerPopup?.(
+        'ERROR',
+        'REVISI TRANSAKSI',
+        'Gagal Menyimpan Revisi',
+        'Keterangan transaksi tidak boleh kosong.'
+      );
+      return;
+    }
     const numericQty = Math.max(1, Number(editQty) || 1);
     const numericPrice = Math.max(0, Number(editUnitPrice) || 0);
+    const updatedTotal = computeDailyExpenseTotal(numericQty, numericPrice);
     const updatedItem: DailyExpenseItem = {
       ...item,
       date: editDate.trim() || item.date,
       description: editDescription.trim(),
       qty: numericQty,
       unitPrice: numericPrice,
-      total: computeDailyExpenseTotal(numericQty, numericPrice),
+      total: updatedTotal,
       paymentMethod: editMethod,
       updatedAt: new Date().toISOString(),
     };
     onUpdateDailyExpense(updatedItem);
     setEditingDailyId(null);
+    onTriggerPopup?.(
+      'REVISED',
+      'SIMPAN REVISI',
+      'Revisi Transaksi Berhasil Disimpan',
+      `Data "${updatedItem.description}" (${updatedItem.date}) berhasil direvisi menjadi ${numericQty}x ${formatIDR(
+        numericPrice
+      )} = ${formatIDR(updatedTotal)} (${editMethod}).`
+    );
   };
 
   const handleSubmitHangout = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!placeOrEvent.trim()) return;
+    if (!placeOrEvent.trim()) {
+      onTriggerPopup?.(
+        'ERROR',
+        'SIMPAN JAJAN',
+        'Gagal Mencatat Jajan / Nongkrong',
+        'Nama tempat atau keterangan nongkrong wajib diisi.'
+      );
+      return;
+    }
     const numericAmount = Number(hangoutAmount) || 0;
     onAddHangoutExpense({
       date: hangoutDate.trim() || '26/10/26',
@@ -148,6 +227,14 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
       paymentMethod: hangoutMethod,
       note: hangoutNote.trim() || 'Nongkrong / Sosial',
     });
+    onTriggerPopup?.(
+      'SUCCESS',
+      'SIMPAN JAJAN',
+      'Catatan Jajan & Nongkrong Disimpan',
+      `Kegiatan "${placeOrEvent.trim()}" sebesar ${formatIDR(
+        numericAmount
+      )} (${hangoutMethod}) berhasil ditambahkan ke database.`
+    );
     setPlaceOrEvent('');
     setHangoutAmount('');
     setHangoutNote('');
@@ -162,8 +249,28 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
     setEditHangoutNote(he.note);
   };
 
+  const handleCancelEditHangout = (he: HangoutExpenseItem) => {
+    setEditingHangoutId(null);
+    onTriggerPopup?.(
+      'CANCELLED',
+      'BATAL REVISI (CANCEL)',
+      'Revisi Jajan Dibatalkan',
+      `Revisi pada catatan "${he.placeOrEvent}" dibatalkan dan nilai dikembalikan ke ${formatIDR(
+        he.amount
+      )}.`
+    );
+  };
+
   const handleSaveEditHangout = (he: HangoutExpenseItem) => {
-    if (!editHangoutPlace.trim()) return;
+    if (!editHangoutPlace.trim()) {
+      onTriggerPopup?.(
+        'ERROR',
+        'REVISI JAJAN',
+        'Gagal Menyimpan Revisi',
+        'Nama tempat atau kegiatan nongkrong tidak boleh kosong.'
+      );
+      return;
+    }
     const updated: HangoutExpenseItem = {
       ...he,
       date: editHangoutDate.trim() || he.date,
@@ -175,6 +282,14 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
     };
     onUpdateHangoutExpense(updated);
     setEditingHangoutId(null);
+    onTriggerPopup?.(
+      'REVISED',
+      'SIMPAN REVISI',
+      'Revisi Jajan Berhasil Disimpan',
+      `Catatan "${updated.placeOrEvent}" berhasil diperbarui menjadi ${formatIDR(
+        updated.amount
+      )} (${updated.paymentMethod}).`
+    );
   };
 
   const filteredDaily = period.dailyExpenses.filter((item) => {
@@ -349,7 +464,7 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 text-xs">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-slate-400">Kelompok Pos:</span>
               <button
                 type="button"
@@ -373,6 +488,65 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
               >
                 Jajan De Aira + Nabung
               </button>
+
+              {/* TOMBOL EKSPOR DI SEBELAH JAJAN DE AIRA + NABUNG (.PDF / .EXCEL .XLSX / .JPG) */}
+              <div className="relative inline-flex items-center">
+                <button
+                  type="button"
+                  onClick={() => setIsExportMenuOpen((prev) => !prev)}
+                  data-testid="tracker-export-dropdown-btn"
+                  className="px-3 py-1 rounded-lg bg-gradient-to-r from-emerald-500/20 via-cyan-500/20 to-indigo-500/20 hover:from-emerald-500/30 hover:to-indigo-500/30 border border-emerald-400/40 text-emerald-300 font-semibold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Ekspor (.PDF / .XLSX / .JPG)</span>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+
+                {isExportMenuOpen && (
+                  <div
+                    role="menu"
+                    aria-label="Pilih Format Ekspor Tracker Harian"
+                    className="absolute left-0 top-full mt-1.5 z-30 w-56 rounded-2xl bg-slate-950 border border-emerald-400/40 p-1.5 shadow-2xl space-y-1"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => handleExportFormat('PDF')}
+                      className="w-full px-3 py-2 rounded-xl hover:bg-slate-800 text-left text-xs text-slate-100 flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2 font-medium">
+                        <FileText className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Dokumen PDF</span>
+                      </span>
+                      <span className="font-mono text-[10px] text-rose-300">.pdf</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => handleExportFormat('XLSX')}
+                      className="w-full px-3 py-2 rounded-xl hover:bg-slate-800 text-left text-xs text-slate-100 flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2 font-medium">
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Microsoft Excel</span>
+                      </span>
+                      <span className="font-mono text-[10px] text-emerald-300">.excel / .xlsx</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => handleExportFormat('JPG')}
+                      className="w-full px-3 py-2 rounded-xl hover:bg-slate-800 text-left text-xs text-slate-100 flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2 font-medium">
+                        <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Gambar Infografis</span>
+                      </span>
+                      <span className="font-mono text-[10px] text-cyan-300">.jpg</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="font-mono tabular-nums text-slate-300">
@@ -547,11 +721,12 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => setEditingDailyId(null)}
-                              aria-label="Batal revisi"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                              onClick={() => handleCancelEditDaily(item)}
+                              aria-label={`Batal revisi ${item.description}`}
+                              className="px-2 py-1 rounded-lg text-slate-300 hover:text-amber-300 hover:bg-slate-800 inline-flex items-center gap-1 text-xs cursor-pointer"
                             >
                               <X className="w-3.5 h-3.5" />
+                              <span>Batal</span>
                             </button>
                           </>
                         ) : (
@@ -567,7 +742,17 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => onDeleteDailyExpense(item.id)}
+                              onClick={() => {
+                                onDeleteDailyExpense(item.id);
+                                onTriggerPopup?.(
+                                  'DELETED',
+                                  'HAPUS TRANSAKSI (DELETE)',
+                                  'Transaksi Harian Berhasil Dihapus',
+                                  `Transaksi "${item.description}" (${item.date}) senilai ${formatIDR(
+                                    item.total
+                                  )} telah dihapus dari database dan saldo bulan ini telah diperbarui.`
+                                );
+                              }}
                               aria-label={`Hapus transaksi ${item.description} ${item.date}`}
                               className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 cursor-pointer"
                             >
@@ -784,10 +969,11 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => setEditingHangoutId(null)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                              onClick={() => handleCancelEditHangout(he)}
+                              className="px-2 py-1 rounded-lg text-slate-300 hover:text-amber-300 hover:bg-slate-800 inline-flex items-center gap-1 text-xs cursor-pointer"
                             >
                               <X className="w-3.5 h-3.5" />
+                              <span>Batal</span>
                             </button>
                           </>
                         ) : (
@@ -803,7 +989,17 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => onDeleteHangoutExpense(he.id)}
+                              onClick={() => {
+                                onDeleteHangoutExpense(he.id);
+                                onTriggerPopup?.(
+                                  'DELETED',
+                                  'HAPUS JAJAN (DELETE)',
+                                  'Catatan Jajan Berhasil Dihapus',
+                                  `Catatan "${he.placeOrEvent}" senilai ${formatIDR(
+                                    he.amount
+                                  )} telah dihapus dari database.`
+                                );
+                              }}
                               aria-label={`Hapus jajan ${he.placeOrEvent}`}
                               className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 cursor-pointer"
                             >

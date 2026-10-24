@@ -239,6 +239,17 @@ test('Master 3D Portal login verifies secret credentials via hash comparison and
   assert.notEqual(computeLiveKeystrokeSignature('user', 'pass'), 'sha256:0000000000000000');
 });
 
+test('Multi-format export generators produce valid .XLSX SpreadsheetML and .PDF ISO-32000 documents', async () => {
+  const { buildExcelWorkbookXml, buildValidPdfDocument } = await import('./exportFormats');
+  const summary = calculatePeriodSummary(OCTOBER_2026_DATA);
 
+  const excelXml = buildExcelWorkbookXml(OCTOBER_2026_DATA, summary, 'ALL');
+  assert.ok(excelXml.includes('<?mso-application progid="Excel.Sheet"?>'));
+  assert.ok(excelXml.includes('Worksheet ss:Name="Tracker Harian 2026-10"'));
+  assert.ok(excelXml.includes('Jajan De Aira + Nabung'));
 
-
+  const pdfString = buildValidPdfDocument(OCTOBER_2026_DATA, summary, 'AIRA_SAVING');
+  assert.ok(pdfString.startsWith('%PDF-1.4\n'));
+  assert.ok(pdfString.includes('LAPORAN TRACKER HARIAN - FINPAY PRO'));
+  assert.ok(pdfString.includes('%%EOF'));
+});

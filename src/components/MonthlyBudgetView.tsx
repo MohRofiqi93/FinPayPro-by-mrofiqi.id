@@ -6,6 +6,7 @@ import {
   Plus,
   Save,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   FixedCostItem,
@@ -19,6 +20,7 @@ import {
   VariableCostItem,
 } from '../types/finance';
 import { formatIDR } from '../utils/calculations';
+import { ActionPopupData } from './Modals';
 
 interface MonthlyBudgetViewProps {
   period: MonthlyPeriodData;
@@ -36,6 +38,12 @@ interface MonthlyBudgetViewProps {
   onUpdateSaving: (item: SavingItem) => void;
   onAddSaving: (item: Omit<SavingItem, 'id' | 'updatedAt'>) => void;
   onToggleSpecialLiability: (id: string) => void;
+  onTriggerPopup?: (
+    status: ActionPopupData['status'],
+    commandLabel: string,
+    title: string,
+    message: string
+  ) => void;
 }
 
 export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
@@ -54,6 +62,7 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
   onUpdateSaving,
   onAddSaving,
   onToggleSpecialLiability,
+  onTriggerPopup,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPlanned, setEditPlanned] = useState<string>('0');
@@ -87,6 +96,16 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
     setEditActual(String(actual));
   };
 
+  const handleCancelInlineEdit = (label: string) => {
+    setEditingId(null);
+    onTriggerPopup?.(
+      'CANCELLED',
+      'BATAL REVISI (CANCEL)',
+      'Revisi Anggaran Dibatalkan',
+      `Perubahan pada pos "${label}" telah dibatalkan. Data tetap menggunakan nominal semula.`
+    );
+  };
+
   const handleCreateFixed = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFixedTitle.trim()) return;
@@ -100,6 +119,14 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
       actual,
       isPaid: false,
     });
+    onTriggerPopup?.(
+      'SUCCESS',
+      'SIMPAN POS TETAP',
+      'Pos Pengeluaran Tetap Berhasil Disimpan',
+      `Pos "${newFixedTitle.trim()}" (Rencana: ${formatIDR(planned)}, Aktual: ${formatIDR(
+        actual
+      )}) berhasil disimpan ke database.`
+    );
     setNewFixedTitle('');
     setNewFixedPlanned('');
     setNewFixedActual('');
@@ -109,15 +136,23 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
   const handleCreateSub = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSubTitle.trim()) return;
+    const planned = Number(newSubPlanned) || 0;
+    const actual = Number(newSubActual) || 0;
     onAddSubDebt({
       dueDay: newSubDay.trim() || '-',
       title: newSubTitle.trim(),
       priority: newSubPriority,
-      planned: Number(newSubPlanned) || 0,
-      actual: Number(newSubActual) || 0,
+      planned,
+      actual,
       isPaid: false,
       includeInMonthlyTotal: true,
     });
+    onTriggerPopup?.(
+      'SUCCESS',
+      'SIMPAN LANGGANAN / HUTANG',
+      'Pos Langganan & Hutang Berhasil Disimpan',
+      `Pos "${newSubTitle.trim()}" sebesar ${formatIDR(actual)} berhasil ditambahkan ke database.`
+    );
     setNewSubTitle('');
     setNewSubPlanned('');
     setNewSubActual('');
@@ -127,11 +162,20 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
   const handleCreateIncome = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newIncomeSource.trim()) return;
+    const amountVal = Number(newIncomeAmount) || 0;
     onAddIncome({
       source: newIncomeSource.trim(),
       type: newIncomeType,
-      amount: Number(newIncomeAmount) || 0,
+      amount: amountVal,
     });
+    onTriggerPopup?.(
+      'SUCCESS',
+      'SIMPAN PENDAPATAN',
+      'Sumber Pendapatan Berhasil Disimpan',
+      `Sumber pendapatan "${newIncomeSource.trim()}" (${newIncomeType}) sebesar ${formatIDR(
+        amountVal
+      )} berhasil disimpan ke database.`
+    );
     setNewIncomeSource('');
     setNewIncomeAmount('');
     setShowAddIncome(false);
@@ -307,41 +351,76 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                       </button>
                     </td>
                     <td className="py-3 pl-3 text-right">
-                      <div className="inline-flex items-center gap-2">
+                      <div className="inline-flex items-center gap-1.5">
                         {isEditing ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onUpdateFixedCost({
-                                ...item,
-                                planned: Number(editPlanned) || 0,
-                                actual: Number(editActual) || 0,
-                              });
-                              setEditingId(null);
-                            }}
-                            aria-label={`Simpan ${item.title}`}
-                            className="p-1.5 rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer"
-                          >
-                            <Save className="w-3.5 h-3.5" />
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const pVal = Number(editPlanned) || 0;
+                                const aVal = Number(editActual) || 0;
+                                onUpdateFixedCost({
+                                  ...item,
+                                  planned: pVal,
+                                  actual: aVal,
+                                });
+                                setEditingId(null);
+                                onTriggerPopup?.(
+                                  'REVISED',
+                                  'SIMPAN REVISI FIXED COST',
+                                  'Revisi Pengeluaran Tetap Berhasil',
+                                  `Pos "${item.title}" berhasil direvisi menjadi Rencana ${formatIDR(
+                                    pVal
+                                  )} dan Aktual ${formatIDR(aVal)}.`
+                                );
+                              }}
+                              aria-label={`Simpan ${item.title}`}
+                              className="px-2 py-1 rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold text-xs inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              <span>Simpan</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCancelInlineEdit(item.title)}
+                              aria-label={`Batal edit ${item.title}`}
+                              className="px-2 py-1 rounded-lg text-slate-300 hover:text-amber-300 hover:bg-slate-800 text-xs inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>Batal</span>
+                            </button>
+                          </>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => startInlineEdit(item.id, item.planned, item.actual)}
-                            aria-label={`Edit ${item.title}`}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => startInlineEdit(item.id, item.planned, item.actual)}
+                              aria-label={`Edit ${item.title}`}
+                              className="px-2 py-1 rounded-lg text-slate-300 hover:text-emerald-400 hover:bg-slate-800 inline-flex items-center gap-1 text-xs cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Revisi</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onDeleteFixedCost(item.id);
+                                onTriggerPopup?.(
+                                  'DELETED',
+                                  'HAPUS POS TETAP (DELETE)',
+                                  'Pos Pengeluaran Tetap Dihapus',
+                                  `Pos "${item.title}" (${formatIDR(
+                                    item.actual
+                                  )}) telah dihapus dari daftar Fixed Cost.`
+                                );
+                              }}
+                              aria-label={`Hapus ${item.title}`}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => onDeleteFixedCost(item.id)}
-                          aria-label={`Hapus ${item.title}`}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
                       </div>
                     </td>
                   </tr>
