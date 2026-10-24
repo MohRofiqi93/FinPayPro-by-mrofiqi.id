@@ -31,6 +31,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [hoveredBarIndex, setHoveredBarIndex] = useState<number | null>(null);
   const [activeTrendIndex, setActiveTrendIndex] = useState<number | null>(null);
   const [animateReady, setAnimateReady] = useState(false);
+  const [accountTilt3D, setAccountTilt3D] = useState<{ rotateX: number; rotateY: number }>({
+    rotateX: 0,
+    rotateY: 0,
+  });
+  const [hoveredAccountIndex, setHoveredAccountIndex] = useState<number | null>(null);
+
+  const handleAccountMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width - 0.5;
+    const y = (e.clientY - rect.top) / rect.height - 0.5;
+    setAccountTilt3D({
+      rotateX: Number((-y * 8).toFixed(2)),
+      rotateY: Number((x * 8).toFixed(2)),
+    });
+  };
 
   // Trigger smooth entry & nominal change animation
   useEffect(() => {
@@ -855,13 +870,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Quick Account Balances & Kewajiban Khusus */}
-        <div className="lg:col-span-5 rounded-3xl liquid-glass-interactive p-6 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-white">
-                Distribusi Rekening & E-Wallet
-              </h3>
+        {/* Quick Account Balances: Grafik Trafik Bar Ganda 3D (Rencana Pos vs Saldo Aktual) */}
+        <div
+          data-testid="dashboard-accounts-3d-traffic"
+          onMouseMove={handleAccountMouseMove}
+          onMouseLeave={() => {
+            setAccountTilt3D({ rotateX: 0, rotateY: 0 });
+            setHoveredAccountIndex(null);
+          }}
+          style={{
+            transform: `perspective(1100px) rotateX(${accountTilt3D.rotateX}deg) rotateY(${accountTilt3D.rotateY}deg)`,
+            transformStyle: 'preserve-3d',
+            transition: 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+          className="lg:col-span-5 rounded-3xl liquid-glass-interactive p-6 flex flex-col justify-between relative overflow-hidden"
+        >
+          {/* Ambient 3D Glow Orb */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full bg-emerald-500/10 blur-3xl"
+          />
+
+          <div className="relative z-10">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-semibold text-white">
+                  Distribusi Rekening &amp; E-Wallet
+                </h3>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  Grafik Trafik Bar Ganda 3D (Rencana Pos vs Saldo Aktual) · Animasi Shimmer
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => onNavigateTab('accounts')}
@@ -870,32 +909,119 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Sesuaikan Saldo →
               </button>
             </div>
-            <div className="mt-4 space-y-2.5">
-              {period.accounts.map((acc) => (
-                <div
-                  key={acc.id}
-                  onClick={() => onNavigateTab('accounts')}
-                  className="flex items-center justify-between p-2.5 rounded-2xl hover:bg-white/[0.04] border border-transparent hover:border-white/10 transition-all cursor-pointer"
-                >
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-white truncate">{acc.name}</p>
-                    <p className="text-[11px] text-slate-400 truncate">{acc.holderNote}</p>
-                  </div>
-                  <div className="text-right shrink-0 ml-3">
-                    <p className="text-xs font-bold font-mono tabular-nums text-emerald-300">
-                      {formatIDR(acc.balance)}
-                    </p>
-                    <p className="text-[10px] font-mono tabular-nums text-slate-400">
-                      Rencana: {formatCompactIDR(acc.plannedAllocation)}
-                    </p>
-                  </div>
-                </div>
-              ))}
+
+            {/* Legend Rencana Pos vs Saldo Aktual */}
+            <div className="mt-3 flex items-center justify-between text-[11px] text-slate-300 pb-2 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-slate-500 inline-block" />
+                  <span>Rencana Pos</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400 inline-block" />
+                  <span>Saldo Aktual</span>
+                </span>
+              </div>
+              <span className="font-mono text-[10px] text-cyan-300">
+                Total: {formatCompactIDR(summary.totalAllAccountsBalance)}
+              </span>
+            </div>
+
+            <div className="mt-3.5 space-y-3">
+              {(() => {
+                const maxAccVal = Math.max(
+                  1,
+                  ...period.accounts.flatMap((a) => [a.plannedAllocation, a.balance])
+                );
+
+                return period.accounts.map((acc, idx) => {
+                  const plannedPct = animateReady
+                    ? Math.min(100, Math.max(4, Math.round((acc.plannedAllocation / maxAccVal) * 100)))
+                    : 0;
+                  const actualPct = animateReady
+                    ? Math.min(100, Math.max(4, Math.round((acc.balance / maxAccVal) * 100)))
+                    : 0;
+                  const ratioPct =
+                    acc.plannedAllocation > 0
+                      ? Math.round((acc.balance / acc.plannedAllocation) * 100)
+                      : acc.balance > 0
+                      ? 100
+                      : 0;
+                  const shareOfTotal =
+                    summary.totalAllAccountsBalance > 0
+                      ? Math.round((acc.balance / summary.totalAllAccountsBalance) * 100)
+                      : 0;
+                  const isSurplusAcc = acc.balance >= acc.plannedAllocation;
+                  const isHoveredAcc = hoveredAccountIndex === idx;
+
+                  return (
+                    <div
+                      key={acc.id}
+                      onMouseEnter={() => setHoveredAccountIndex(idx)}
+                      onMouseLeave={() => setHoveredAccountIndex(null)}
+                      onClick={() => onNavigateTab('accounts')}
+                      style={{
+                        transform: isHoveredAcc ? 'translateZ(12px) scale(1.01)' : 'translateZ(0px)',
+                        transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                      }}
+                      className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                        isHoveredAcc
+                          ? 'liquid-glass-inset border-emerald-400/45 shadow-lg shadow-emerald-950/50'
+                          : 'bg-slate-950/60 border-white/10 hover:border-emerald-400/30'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs mb-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-semibold text-white truncate">{acc.name}</span>
+                          <span
+                            className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md shrink-0 ${
+                              isSurplusAcc
+                                ? 'bg-emerald-500/20 text-emerald-300'
+                                : 'bg-amber-500/20 text-amber-300'
+                            }`}
+                          >
+                            {ratioPct}% Rencana · {shareOfTotal}% Kas
+                          </span>
+                        </div>
+                        <div className="font-mono tabular-nums text-[11px] flex items-center gap-1.5 shrink-0">
+                          <span className="text-slate-400">
+                            Rencana: {formatCompactIDR(acc.plannedAllocation)}
+                          </span>
+                          <span className="text-slate-600">·</span>
+                          <span className="text-emerald-400 font-bold">
+                            Aktual: {formatIDR(acc.balance)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Dual Animated 3D Bars with Shimmer */}
+                      <div className="space-y-1.5">
+                        <div className="w-full h-2 bg-slate-900/90 rounded-full overflow-hidden p-0.5">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-slate-500 to-slate-400 liquid-bar-fill"
+                            style={{ width: `${plannedPct}%` }}
+                          />
+                        </div>
+                        <div className="w-full h-2.5 bg-slate-900/90 rounded-full overflow-hidden p-0.5">
+                          <div
+                            className={`h-full rounded-full liquid-bar-fill bg-gradient-to-r ${
+                              acc.category === 'BANK'
+                                ? 'from-emerald-500 via-teal-400 to-cyan-300'
+                                : 'from-cyan-500 via-sky-400 to-indigo-400'
+                            }`}
+                            style={{ width: `${actualPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-300">
-            <span>Catatan Hutang Khusus (Masjid & PLN)</span>
+          <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-300 relative z-10">
+            <span>Catatan Hutang Khusus (Masjid &amp; PLN)</span>
             <span className="font-mono tabular-nums text-rose-400 font-semibold">
               {formatIDR(summary.totalSpecialLiabilities)}
             </span>

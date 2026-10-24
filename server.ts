@@ -113,7 +113,7 @@ function loadVault(): CloudVaultState {
               },
             ],
         periodsSnapshot:
-          Array.isArray(parsed.periodsSnapshot) && parsed.periodsSnapshot.length > 0
+          Array.isArray(parsed.periodsSnapshot) && parsed.periodsSnapshot.length > 0 && parsed.schemaVersion === 'v4'
             ? parsed.periodsSnapshot
             : INITIAL_PERIODS,
         syncQueue: Array.isArray(parsed.syncQueue) ? parsed.syncQueue : [],
@@ -204,7 +204,11 @@ function saveVault(vault: CloudVaultState) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     vault.lastUpdatedAt = new Date().toISOString();
-    fs.writeFileSync(VAULT_FILE, JSON.stringify(vault, null, 2), 'utf-8');
+    fs.writeFileSync(
+      VAULT_FILE,
+      JSON.stringify({ ...vault, schemaVersion: 'v4' }, null, 2),
+      'utf-8'
+    );
   } catch (err) {
     console.error('Failed to save vault:', err);
   }

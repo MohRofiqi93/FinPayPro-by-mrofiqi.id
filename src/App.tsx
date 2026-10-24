@@ -71,13 +71,13 @@ import {
 } from './components/Modals';
 
 const STORAGE_KEYS = {
-  PERIODS: 'aurelia_finplanner_periods_v2',
-  ACTIVE_PERIOD: 'aurelia_finplanner_active_period_v2',
-  SYNC_QUEUE: 'aurelia_finplanner_sync_queue_v2',
-  SYNC_CONFIG: 'aurelia_finplanner_sync_config_v2',
+  PERIODS: 'aurelia_finplanner_periods_v4',
+  ACTIVE_PERIOD: 'aurelia_finplanner_active_period_v4',
+  SYNC_QUEUE: 'aurelia_finplanner_sync_queue_v4',
+  SYNC_CONFIG: 'aurelia_finplanner_sync_config_v4',
   USER_ACCOUNT: 'aurelia_finplanner_user_account_v1',
   AUTH_SESSION: 'aurelia_finplanner_auth_session_v1',
-  USERS_SHEET: 'aurelia_finplanner_users_sheet_v3',
+  USERS_SHEET: 'aurelia_finplanner_users_sheet_v4',
   THEME_MODE: 'aurelia_finplanner_theme_v1',
   LOCALE: 'aurelia_finplanner_locale_v1',
   NOTIF_PREFS: 'aurelia_finplanner_notif_prefs_v1',
@@ -441,6 +441,37 @@ export default function App() {
 
   // Connect to Real-Time SSE Stream (/api/events) & Hydrate Cloud Vault on startup
   useEffect(() => {
+    // Hydrate from Server Cloud Vault on startup if local storage was empty
+    const hasLocalPeriods = (() => {
+      try {
+        return Boolean(localStorage.getItem(STORAGE_KEYS.PERIODS));
+      } catch {
+        return false;
+      }
+    })();
+
+    if (!hasLocalPeriods) {
+      fetch('/api/vault')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (
+            data?.vault?.periodsSnapshot &&
+            Array.isArray(data.vault.periodsSnapshot) &&
+            data.vault.periodsSnapshot.length > 0
+          ) {
+            setPeriods(data.vault.periodsSnapshot);
+          }
+          if (
+            data?.vault?.usersSheet &&
+            Array.isArray(data.vault.usersSheet) &&
+            data.vault.usersSheet.length > 0
+          ) {
+            setUsersSheet(data.vault.usersSheet);
+          }
+        })
+        .catch(() => {});
+    }
+
     let eventSource: EventSource | null = null;
     try {
       eventSource = new EventSource('/api/events');
@@ -451,6 +482,16 @@ export default function App() {
             if (prev.some((n) => n.id === data.id)) return prev;
             return [{ ...data, read: false }, ...prev].slice(0, 60);
           });
+        } catch {
+          // Ignore malformed event
+        }
+      });
+      eventSource.addEventListener('CLOUD_SYNC_COMPLETED', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data?.lastUpdatedAt) {
+            setSyncConfig((prev) => ({ ...prev, lastSyncedAt: data.lastUpdatedAt }));
+          }
         } catch {
           // Ignore malformed event
         }
@@ -530,7 +571,7 @@ export default function App() {
     return 'SYNCED';
   }, [isSyncing, isEffectiveOnline, pendingSyncItems.length]);
 
-  // Background Sync Worker Execution (Automatic Cloud Vault + Google Drive Sync)
+  // Background Sync Worker Execution (Automatic Cloud Vault + Google Drive Full Snapshot Sync)
   const executeCloudSync = useCallback(async () => {
     if (!isEffectiveOnline || isSyncing) return;
 
@@ -538,14 +579,42 @@ export default function App() {
     const nowIso = new Date().toISOString();
     const targetUrl = syncConfig.appsScriptUrl.trim() || DEFAULT_GOOGLE_DRIVE_DB_URL;
 
+    const effectiveQueue =
+      pendingSyncItems.length > 0
+        ? pendingSyncItems
+        : [
+            createSyncQueueItem(
+              activePeriod.periodId,
+              activePeriod.monthLabel,
+              'FULL_SNAPSHOT_SYNC',
+              `Sinkronisasi Penuh Website & Cloud (${activePeriod.monthLabel} · Saldo Akhir ${formatIDR(
+                activeSummary.closingBalance
+              )})`,
+              {
+                periodId: activePeriod.periodId,
+                totalIncome: activeSummary.totalIncome,
+                fixedCostPlanned: activeSummary.fixedCostPlanned,
+                fixedCostActual: activeSummary.fixedCostActual,
+                subDebtPlanned: activeSummary.subDebtPlanned,
+                subDebtActual: activeSummary.subDebtActual,
+                variablePlanned: activeSummary.variablePlanned,
+                variableActual: activeSummary.variableActual,
+                closingBalance: activeSummary.closingBalance,
+                totalAllAccountsBalance: activeSummary.totalAllAccountsBalance,
+              },
+              nowIso
+            ),
+          ];
+
     try {
       await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           apiSecretToken: syncConfig.apiSecretToken,
-          queue: pendingSyncItems,
+          queue: effectiveQueue,
           activePeriodSnapshot: activePeriod,
+          activeSummary,
           allPeriods: periods,
           usersSheet,
           actor: registeredAccount?.email || OWNER_VERIFIED_EMAIL,
@@ -562,14 +631,16 @@ export default function App() {
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
             apiSecretToken: syncConfig.apiSecretToken,
-            queue: pendingSyncItems,
+            queue: effectiveQueue,
             activePeriodSnapshot: activePeriod,
+            activeSummary,
+            allPeriods: periods,
           }),
         }).catch(() => {});
       }
 
-      setSyncQueue((prev) =>
-        prev.map((q) =>
+      setSyncQueue((prev) => {
+        const marked = prev.map((q) =>
           q.isSynced
             ? q
             : {
@@ -577,10 +648,21 @@ export default function App() {
                 isSynced: true,
                 syncedAt: nowIso,
               }
-        )
-      );
+        );
+        if (pendingSyncItems.length === 0) {
+          return [
+            {
+              ...effectiveQueue[0],
+              isSynced: true,
+              syncedAt: nowIso,
+            },
+            ...marked,
+          ].slice(0, 80);
+        }
+        return marked;
+      });
       setSyncConfig((prev) => ({ ...prev, lastSyncedAt: nowIso }));
-      showToast('Seluruh antrean data berhasil disinkronkan ke Cloud Vault & Google Sheets.');
+      showToast('Seluruh data berhasil disinkronkan penuh ke Website, Cloud Vault & Google Sheets.');
     } catch {
       showToast('Mode Offline: Data aman tersimpan di perangkat & akan disinkronkan ulang.');
     } finally {
@@ -593,6 +675,7 @@ export default function App() {
     syncConfig.apiSecretToken,
     pendingSyncItems,
     activePeriod,
+    activeSummary,
     periods,
     usersSheet,
     registeredAccount?.email,

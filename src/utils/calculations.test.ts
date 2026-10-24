@@ -253,3 +253,30 @@ test('Multi-format export generators produce valid .XLSX SpreadsheetML and .PDF 
   assert.ok(pdfString.includes('LAPORAN TRACKER HARIAN - FINPAY PRO'));
   assert.ok(pdfString.includes('%%EOF'));
 });
+
+test('Marking a Fixed Cost item as Lunas (isPaid: true) reduces TOTAL PENGELUARAN TETAP (fixedCostPlanned & fixedCostActual)', () => {
+  const initialSummary = calculatePeriodSummary(OCTOBER_2026_DATA);
+  assert.equal(initialSummary.fixedCostPlanned, 1_010_000);
+  assert.equal(initialSummary.fixedCostActual, 1_122_000);
+
+  // Mark Indihome 200 Mbps (planned: 660_000, actual: 740_000) as Lunas (isPaid: true)
+  const afterPaidPeriod = {
+    ...OCTOBER_2026_DATA,
+    fixedCosts: OCTOBER_2026_DATA.fixedCosts.map((fc) =>
+      fc.id === '2026-10-fc1' ? { ...fc, isPaid: true } : fc
+    ),
+  };
+
+  const afterSummary = calculatePeriodSummary(afterPaidPeriod);
+  assert.equal(
+    afterSummary.fixedCostPlanned,
+    1_010_000 - 660_000,
+    'TOTAL PENGELUARAN TETAP Rencana must decrease by 660.000 to 350.000 when Indihome is Lunas'
+  );
+  assert.equal(
+    afterSummary.fixedCostActual,
+    1_122_000 - 740_000,
+    'TOTAL PENGELUARAN TETAP Aktual must decrease by 740.000 to 382.000 when Indihome is Lunas'
+  );
+});
+

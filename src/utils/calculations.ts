@@ -60,17 +60,23 @@ export function calculatePeriodSummary(period: MonthlyPeriodData): PeriodFinanci
 
   const totalIncome = primaryIncome + sideIncome;
 
-  const fixedCostPlanned = period.fixedCosts.reduce((acc, item) => acc + (item.planned || 0), 0);
-  const fixedCostActual = period.fixedCosts.reduce((acc, item) => acc + (item.actual || 0), 0);
+  // Hanya menjumlahkan pos Fixed Cost yang belum lunas (!item.isPaid), sehingga saat diklik Lunas & disimpan,
+  // TOTAL PENGELUARAN TETAP (FIXED COST) Rencana & Aktual di paling bawah otomatis berkurang.
+  const fixedCostPlanned = period.fixedCosts
+    .filter((item) => !item.isPaid)
+    .reduce((acc, item) => acc + (item.planned || 0), 0);
+  const fixedCostActual = period.fixedCosts
+    .filter((item) => !item.isPaid)
+    .reduce((acc, item) => acc + (item.actual || 0), 0);
   const paidFixedCount = period.fixedCosts.filter((item) => item.isPaid).length;
   const totalFixedCount = period.fixedCosts.length;
 
   const subDebtPlanned = period.subscriptionsAndDebts
-    .filter((item) => item.includeInMonthlyTotal)
+    .filter((item) => item.includeInMonthlyTotal && !item.isPaid)
     .reduce((acc, item) => acc + (item.planned || 0), 0);
 
   const subDebtActual = period.subscriptionsAndDebts
-    .filter((item) => item.includeInMonthlyTotal)
+    .filter((item) => item.includeInMonthlyTotal && !item.isPaid)
     .reduce((acc, item) => acc + (item.actual || 0), 0);
 
   const subDebtAllActual = period.subscriptionsAndDebts.reduce(

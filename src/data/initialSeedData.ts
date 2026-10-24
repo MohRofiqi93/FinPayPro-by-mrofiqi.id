@@ -536,13 +536,13 @@ export const NOVEMBER_2026_DATA: MonthlyPeriodData = {
     ...fc,
     id: `2026-11-fc${idx + 1}`,
     actual: fc.planned,
-    isPaid: idx < 4,
+    isPaid: fc.isPaid,
   })),
   subscriptionsAndDebts: OCTOBER_2026_DATA.subscriptionsAndDebts.map((sd, idx) => ({
     ...sd,
     id: `2026-11-sd${idx + 1}`,
-    actual: sd.includeInMonthlyTotal ? sd.planned : 0,
-    isPaid: false,
+    actual: sd.includeInMonthlyTotal ? sd.planned : sd.actual,
+    isPaid: sd.isPaid,
   })),
   variableCosts: [
     {

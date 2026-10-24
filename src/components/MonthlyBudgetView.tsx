@@ -67,6 +67,40 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPlanned, setEditPlanned] = useState<string>('0');
   const [editActual, setEditActual] = useState<string>('0');
+  const [editIsPaid, setEditIsPaid] = useState<boolean>(false);
+
+  // 3D Perspective Tilt states for Section 02 (Subscription & Debt) and Section 03 (Variable Cost)
+  const [subDebtTilt3D, setSubDebtTilt3D] = useState<{ rotateX: number; rotateY: number }>({
+    rotateX: 0,
+    rotateY: 0,
+  });
+  const [hoveredSubBarIdx, setHoveredSubBarIdx] = useState<number | null>(null);
+
+  const [variableTilt3D, setVariableTilt3D] = useState<{ rotateX: number; rotateY: number }>({
+    rotateX: 0,
+    rotateY: 0,
+  });
+  const [hoveredVarBarIdx, setHoveredVarBarIdx] = useState<number | null>(null);
+
+  const handleSubDebtMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width - 0.5;
+    const y = (e.clientY - rect.top) / rect.height - 0.5;
+    setSubDebtTilt3D({
+      rotateX: Number((-y * 7).toFixed(2)),
+      rotateY: Number((x * 7).toFixed(2)),
+    });
+  };
+
+  const handleVariableMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width - 0.5;
+    const y = (e.clientY - rect.top) / rect.height - 0.5;
+    setVariableTilt3D({
+      rotateX: Number((-y * 7).toFixed(2)),
+      rotateY: Number((x * 7).toFixed(2)),
+    });
+  };
 
   // New Fixed Cost form state
   const [showAddFixed, setShowAddFixed] = useState(false);
@@ -90,10 +124,11 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
   const [newIncomeType, setNewIncomeType] = useState<'Utama' | 'Sampingan'>('Sampingan');
   const [newIncomeAmount, setNewIncomeAmount] = useState('');
 
-  const startInlineEdit = (id: string, planned: number, actual: number) => {
+  const startInlineEdit = (id: string, planned: number, actual: number, isPaid = false) => {
     setEditingId(id);
     setEditPlanned(String(planned));
     setEditActual(String(actual));
+    setEditIsPaid(isPaid);
   };
 
   const handleCancelInlineEdit = (label: string) => {
@@ -333,11 +368,42 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                     <td className="py-3 px-3 text-center">
                       <button
                         type="button"
-                        onClick={() => onToggleFixedPaid(item.id)}
+                        onClick={() => {
+                          if (isEditing) {
+                            setEditIsPaid((prev) => !prev);
+                          } else {
+                            const nextPaid = !item.isPaid;
+                            onToggleFixedPaid(item.id);
+                            const nextPlannedTotal = nextPaid
+                              ? Math.max(0, summary.fixedCostPlanned - item.planned)
+                              : summary.fixedCostPlanned + item.planned;
+                            const nextActualTotal = nextPaid
+                              ? Math.max(0, summary.fixedCostActual - item.actual)
+                              : summary.fixedCostActual + item.actual;
+                            onTriggerPopup?.(
+                              'REVISED',
+                              nextPaid ? 'LUNAS & SIMPAN FIXED COST' : 'AKTIFKAN TAGIHAN FIXED COST',
+                              nextPaid
+                                ? `Pos "${item.title}" Disimpan Lunas`
+                                : `Pos "${item.title}" Dikembalikan Belum Lunas`,
+                              nextPaid
+                                ? `Tagihan "${item.title}" (Rencana ${formatIDR(
+                                    item.planned
+                                  )}, Aktual ${formatIDR(
+                                    item.actual
+                                  )}) telah ditandai LUNAS. TOTAL PENGELUARAN TETAP (FIXED COST) otomatis berkurang menjadi Rencana ${formatIDR(
+                                    nextPlannedTotal
+                                  )} & Aktual ${formatIDR(nextActualTotal)}.`
+                                : `Tagihan "${item.title}" kembali aktif (Belum Lunas). TOTAL PENGELUARAN TETAP (FIXED COST) menjadi Rencana ${formatIDR(
+                                    nextPlannedTotal
+                                  )} & Aktual ${formatIDR(nextActualTotal)}.`
+                            );
+                          }
+                        }}
                         aria-label={`Toggle status lunas ${item.title}`}
                         className="inline-flex items-center gap-1.5 text-xs font-medium cursor-pointer hover:opacity-80"
                       >
-                        {item.isPaid ? (
+                        {(isEditing ? editIsPaid : item.isPaid) ? (
                           <>
                             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                             <span className="text-emerald-400">Lunas</span>
@@ -363,15 +429,34 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                                   ...item,
                                   planned: pVal,
                                   actual: aVal,
+                                  isPaid: editIsPaid,
+                                  updatedAt: new Date().toISOString(),
                                 });
                                 setEditingId(null);
+                                const updatedList = period.fixedCosts.map((fc) =>
+                                  fc.id === item.id
+                                    ? { ...fc, planned: pVal, actual: aVal, isPaid: editIsPaid }
+                                    : fc
+                                );
+                                const newPlannedSum = updatedList
+                                  .filter((fc) => !fc.isPaid)
+                                  .reduce((acc, fc) => acc + fc.planned, 0);
+                                const newActualSum = updatedList
+                                  .filter((fc) => !fc.isPaid)
+                                  .reduce((acc, fc) => acc + fc.actual, 0);
                                 onTriggerPopup?.(
                                   'REVISED',
                                   'SIMPAN REVISI FIXED COST',
-                                  'Revisi Pengeluaran Tetap Berhasil',
-                                  `Pos "${item.title}" berhasil direvisi menjadi Rencana ${formatIDR(
-                                    pVal
-                                  )} dan Aktual ${formatIDR(aVal)}.`
+                                  editIsPaid
+                                    ? `Pos "${item.title}" Lunas & Total Fixed Cost Berkurang`
+                                    : 'Revisi Pengeluaran Tetap Berhasil Disimpan',
+                                  `Pos "${item.title}" disimpan (${
+                                    editIsPaid ? 'Status: LUNAS ✅' : 'Status: BELUM LUNAS'
+                                  }, Rencana ${formatIDR(pVal)}, Aktual ${formatIDR(
+                                    aVal
+                                  )}). TOTAL PENGELUARAN TETAP (FIXED COST) kini menjadi Rencana ${formatIDR(
+                                    newPlannedSum
+                                  )} & Aktual ${formatIDR(newActualSum)}.`
                                 );
                               }}
                               aria-label={`Simpan ${item.title}`}
@@ -394,7 +479,9 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                           <>
                             <button
                               type="button"
-                              onClick={() => startInlineEdit(item.id, item.planned, item.actual)}
+                              onClick={() =>
+                                startInlineEdit(item.id, item.planned, item.actual, item.isPaid)
+                              }
                               aria-label={`Edit ${item.title}`}
                               className="px-2 py-1 rounded-lg text-slate-300 hover:text-emerald-400 hover:bg-slate-800 inline-flex items-center gap-1 text-xs cursor-pointer"
                             >
@@ -428,18 +515,77 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
               })}
             </tbody>
             <tfoot>
-              <tr className="border-t border-slate-700 font-semibold text-xs">
-                <td colSpan={3} className="pt-3 text-slate-300">
-                  TOTAL PENGELUARAN TETAP (FIXED COST)
-                </td>
-                <td className="pt-3 px-3 text-right font-mono tabular-nums text-slate-200">
-                  {formatIDR(summary.fixedCostPlanned)}
-                </td>
-                <td className="pt-3 px-3 text-right font-mono tabular-nums text-emerald-400">
-                  {formatIDR(summary.fixedCostActual)}
-                </td>
-                <td colSpan={2} />
-              </tr>
+              {(() => {
+                const paidPlannedSum = period.fixedCosts
+                  .filter((fc) => fc.isPaid)
+                  .reduce((acc, fc) => acc + (fc.planned || 0), 0);
+                const paidActualSum = period.fixedCosts
+                  .filter((fc) => fc.isPaid)
+                  .reduce((acc, fc) => acc + (fc.actual || 0), 0);
+
+                return (
+                  <>
+                    {(paidPlannedSum > 0 || paidActualSum > 0) && (
+                      <tr className="border-t border-slate-800/80 text-[11px] text-emerald-300/90">
+                        <td colSpan={3} className="pt-2.5">
+                          TAGIHAN SUDAH LUNAS (OTOMATIS MENGURANGI TOTAL FIXED COST)
+                        </td>
+                        <td className="pt-2.5 px-3 text-right font-mono tabular-nums">
+                          -{formatIDR(paidPlannedSum)}
+                        </td>
+                        <td className="pt-2.5 px-3 text-right font-mono tabular-nums">
+                          -{formatIDR(paidActualSum)}
+                        </td>
+                        <td colSpan={2} className="pt-2.5 pl-3 text-right font-mono text-[10px]">
+                          {summary.paidFixedCount} Pos Lunas ✅
+                        </td>
+                      </tr>
+                    )}
+                    <tr className="border-t border-slate-700 font-semibold text-xs">
+                      <td colSpan={3} className="pt-3 text-slate-200">
+                        TOTAL PENGELUARAN TETAP (FIXED COST)
+                        <span className="ml-2 text-[10px] font-normal text-slate-400">
+                          (Sisa Tagihan Aktif Belum Lunas: {summary.totalFixedCount - summary.paidFixedCount} Pos)
+                        </span>
+                      </td>
+                      <td
+                        data-testid="fixed-cost-total-planned"
+                        className="pt-3 px-3 text-right font-mono tabular-nums text-slate-100"
+                      >
+                        {formatIDR(summary.fixedCostPlanned)}
+                      </td>
+                      <td
+                        data-testid="fixed-cost-total-actual"
+                        className="pt-3 px-3 text-right font-mono tabular-nums text-emerald-400"
+                      >
+                        {formatIDR(summary.fixedCostActual)}
+                      </td>
+                      <td colSpan={2} className="pt-3 pl-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onTriggerPopup?.(
+                              'SUCCESS',
+                              'SIMPAN TOTAL FIXED COST',
+                              'Total Pengeluaran Tetap (Fixed Cost) Tersimpan',
+                              `Rekapitulasi Fixed Cost berhasil disimpan. Total Rencana Aktif: ${formatIDR(
+                                summary.fixedCostPlanned
+                              )} · Total Aktual Aktif: ${formatIDR(
+                                summary.fixedCostActual
+                              )} (${summary.paidFixedCount}/${summary.totalFixedCount} Pos Lunas).`
+                            )
+                          }
+                          data-testid="save-fixed-cost-summary-btn"
+                          className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Save className="w-3 h-3" />
+                          <span>Simpan</span>
+                        </button>
+                      </td>
+                    </tr>
+                  </>
+                );
+              })()}
             </tfoot>
           </table>
         </div>
@@ -453,10 +599,10 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10">
               <div>
                 <h2 className="text-base font-semibold text-white">
-                  02. Biaya Langganan & Hutang · Subscription & Debt
+                  02. Biaya Langganan &amp; Hutang · Subscription &amp; Debt
                 </h2>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  SPP Sekolah Aira, Aden Hijab, Uang Adat, Forkel & Mental Health Tim IT
+                  SPP Sekolah Aira, Aden Hijab, Uang Adat, Forkel &amp; Mental Health Tim IT
                 </p>
               </div>
               <button
@@ -519,6 +665,130 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
               </form>
             )}
 
+            {/* GRAFIK TRAFIK BAR GANDA 3D (RENCANA POS VS SALDO AKTUAL) — 02. BIAYA LANGGANAN & HUTANG */}
+            <div
+              data-testid="subdebt-3d-traffic-panel"
+              onMouseMove={handleSubDebtMouseMove}
+              onMouseLeave={() => {
+                setSubDebtTilt3D({ rotateX: 0, rotateY: 0 });
+                setHoveredSubBarIdx(null);
+              }}
+              style={{
+                transform: `perspective(1100px) rotateX(${subDebtTilt3D.rotateX}deg) rotateY(${subDebtTilt3D.rotateY}deg)`,
+                transformStyle: 'preserve-3d',
+                transition: 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1)',
+              }}
+              className="mt-4 p-4 rounded-2xl liquid-glass-inset border border-cyan-500/25 space-y-3 relative overflow-hidden"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div>
+                  <p className="font-semibold text-white">
+                    Grafik Trafik Bar Ganda 3D (Rencana Pos vs Aktual)
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Efek kemiringan perspektif 3D interaktif &amp; animasi shimmer
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 text-[11px] text-slate-300">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-slate-500 inline-block" />
+                    <span>Rencana Pos</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-cyan-400 inline-block" />
+                    <span>Saldo Aktual</span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2.5">
+                {(() => {
+                  const maxSubVal = Math.max(
+                    1,
+                    ...period.subscriptionsAndDebts.flatMap((s) => [s.planned, s.actual])
+                  );
+                  return period.subscriptionsAndDebts.map((sd, idx) => {
+                    const plannedPct = Math.min(
+                      100,
+                      Math.max(5, Math.round((sd.planned / maxSubVal) * 100))
+                    );
+                    const actualPct = Math.min(
+                      100,
+                      Math.max(5, Math.round((sd.actual / maxSubVal) * 100))
+                    );
+                    const ratioPct =
+                      sd.planned > 0 ? Math.round((sd.actual / sd.planned) * 100) : 100;
+                    const isHovered = hoveredSubBarIdx === idx;
+
+                    return (
+                      <div
+                        key={`bar-${sd.id}`}
+                        onMouseEnter={() => setHoveredSubBarIdx(idx)}
+                        onMouseLeave={() => setHoveredSubBarIdx(null)}
+                        style={{
+                          transform: isHovered ? 'translateZ(10px) scale(1.01)' : 'translateZ(0px)',
+                          transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                        }}
+                        className={`p-2.5 rounded-xl border transition-all ${
+                          isHovered
+                            ? 'bg-slate-900/90 border-cyan-400/45 shadow-md'
+                            : 'bg-slate-950/60 border-white/5'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-xs mb-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-medium text-white truncate">{sd.title}</span>
+                            <span
+                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+                                sd.isPaid
+                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  : 'bg-cyan-500/20 text-cyan-300'
+                              }`}
+                            >
+                              {sd.isPaid ? 'Lunas ✅' : `${ratioPct}% Aktif`}
+                            </span>
+                          </div>
+                          <div className="font-mono tabular-nums text-[11px] flex items-center gap-1.5 shrink-0">
+                            <span className="text-slate-400">Rencana: {formatIDR(sd.planned)}</span>
+                            <span className="text-slate-600">·</span>
+                            <span
+                              className={
+                                sd.isPaid
+                                  ? 'text-emerald-400 font-semibold'
+                                  : 'text-cyan-300 font-semibold'
+                              }
+                            >
+                              Aktual: {formatIDR(sd.actual)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Dual 3D Shimmer Bars */}
+                        <div className="space-y-1">
+                          <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden p-0.5">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-slate-500 to-slate-400 liquid-bar-fill"
+                              style={{ width: `${plannedPct}%` }}
+                            />
+                          </div>
+                          <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden p-0.5">
+                            <div
+                              className={`h-full rounded-full liquid-bar-fill bg-gradient-to-r ${
+                                sd.isPaid
+                                  ? 'from-emerald-500 via-teal-400 to-emerald-300'
+                                  : 'from-sky-500 via-cyan-400 to-indigo-400'
+                              }`}
+                              style={{ width: `${actualPct}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -528,7 +798,7 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                     <th className="py-2 px-2">Prioritas</th>
                     <th className="py-2 px-2 text-right">Rencana</th>
                     <th className="py-2 px-2 text-right">Aktual</th>
-                    <th className="py-2 pl-2 text-center">Status</th>
+                    <th className="py-2 pl-2 text-center">Status / Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 text-xs">
@@ -562,7 +832,7 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => startInlineEdit(sd.id, sd.planned, sd.actual)}
+                              onClick={() => startInlineEdit(sd.id, sd.planned, sd.actual, sd.isPaid)}
                               className="hover:text-emerald-400 underline decoration-dotted cursor-pointer"
                             >
                               {formatIDR(sd.actual)}
@@ -571,32 +841,79 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                         </td>
                         <td className="py-2.5 pl-2 text-center">
                           {isEditing ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onUpdateSubDebt({
-                                  ...sd,
-                                  planned: Number(editPlanned) || 0,
-                                  actual: Number(editActual) || 0,
-                                });
-                                setEditingId(null);
-                              }}
-                              className="px-2 py-1 rounded bg-emerald-500 text-slate-950 font-semibold text-[11px] cursor-pointer"
-                            >
-                              Simpan
-                            </button>
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const pVal = Number(editPlanned) || 0;
+                                  const aVal = Number(editActual) || 0;
+                                  onUpdateSubDebt({
+                                    ...sd,
+                                    planned: pVal,
+                                    actual: aVal,
+                                    isPaid: editIsPaid,
+                                  });
+                                  setEditingId(null);
+                                  onTriggerPopup?.(
+                                    'REVISED',
+                                    'SIMPAN LANGGANAN & HUTANG',
+                                    'Revisi Langganan & Hutang Disimpan',
+                                    `Pos "${sd.title}" berhasil disimpan menjadi Rencana ${formatIDR(
+                                      pVal
+                                    )} & Aktual ${formatIDR(aVal)}.`
+                                  );
+                                }}
+                                className="px-2 py-1 rounded bg-emerald-500 text-slate-950 font-semibold text-[11px] cursor-pointer"
+                              >
+                                Simpan
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCancelInlineEdit(sd.title)}
+                                className="px-2 py-1 rounded bg-slate-800 text-slate-300 hover:text-amber-300 text-[11px] cursor-pointer"
+                              >
+                                Batal
+                              </button>
+                            </div>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => onToggleSubDebtPaid(sd.id)}
-                              className="inline-flex items-center gap-1 text-xs cursor-pointer"
-                            >
-                              {sd.isPaid ? (
-                                <span className="text-emerald-400 font-medium">Lunas</span>
-                              ) : (
-                                <span className="text-amber-400 font-medium">Aktif</span>
-                              )}
-                            </button>
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextPaid = !sd.isPaid;
+                                  onToggleSubDebtPaid(sd.id);
+                                  onTriggerPopup?.(
+                                    'REVISED',
+                                    nextPaid ? 'LUNAS LANGGANAN/HUTANG' : 'AKTIFKAN LANGGANAN/HUTANG',
+                                    nextPaid
+                                      ? `Pos "${sd.title}" Ditandai Lunas`
+                                      : `Pos "${sd.title}" Kembali Aktif`,
+                                    `Status "${sd.title}" (${formatIDR(
+                                      sd.actual
+                                    )}) berhasil diperbarui menjadi ${
+                                      nextPaid ? 'LUNAS' : 'AKTIF'
+                                    }.`
+                                  );
+                                }}
+                                className="inline-flex items-center gap-1 text-xs cursor-pointer"
+                              >
+                                {sd.isPaid ? (
+                                  <span className="text-emerald-400 font-medium">Lunas</span>
+                                ) : (
+                                  <span className="text-amber-400 font-medium">Aktif</span>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  startInlineEdit(sd.id, sd.planned, sd.actual, sd.isPaid)
+                                }
+                                aria-label={`Revisi ${sd.title}`}
+                                className="p-1 rounded text-slate-400 hover:text-emerald-400 cursor-pointer"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -611,7 +928,9 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
             <span className="text-slate-400">TOTAL AKTIF BULANAN</span>
             <div className="space-x-3">
               <span className="text-slate-300">Rencana: {formatIDR(summary.subDebtPlanned)}</span>
-              <span className="text-emerald-400 font-semibold">Aktual: {formatIDR(summary.subDebtActual)}</span>
+              <span className="text-emerald-400 font-semibold">
+                Aktual: {formatIDR(summary.subDebtActual)}
+              </span>
             </div>
           </div>
         </section>
@@ -624,8 +943,163 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                 03. Pengeluaran Tidak Tetap · Variable Cost
               </h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Terhubung otomatis dengan Tracker Pengeluaran Sehari-hari & Tracker Jajan/Nongkrong
+                Terhubung otomatis dengan Tracker Pengeluaran Sehari-hari &amp; Tracker Jajan/Nongkrong
               </p>
+            </div>
+
+            {/* GRAFIK TRAFIK BAR GANDA 3D (RENCANA POS VS SALDO AKTUAL) — 03. PENGELUARAN TIDAK TETAP (VARIABLE COST) */}
+            <div
+              data-testid="variable-3d-traffic-panel"
+              onMouseMove={handleVariableMouseMove}
+              onMouseLeave={() => {
+                setVariableTilt3D({ rotateX: 0, rotateY: 0 });
+                setHoveredVarBarIdx(null);
+              }}
+              style={{
+                transform: `perspective(1100px) rotateX(${variableTilt3D.rotateX}deg) rotateY(${variableTilt3D.rotateY}deg)`,
+                transformStyle: 'preserve-3d',
+                transition: 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1)',
+              }}
+              className="mt-4 p-4 rounded-2xl liquid-glass-inset border border-amber-500/25 space-y-3 relative overflow-hidden"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div>
+                  <p className="font-semibold text-white">
+                    Grafik Trafik Bar Ganda 3D (Rencana Pos vs Aktual)
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Efek kemiringan perspektif 3D interaktif &amp; animasi shimmer
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 text-[11px] text-slate-300">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-slate-500 inline-block" />
+                    <span>Rencana Pos</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block" />
+                    <span>Saldo Aktual</span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2.5">
+                {(() => {
+                  const variableTrafficRows = [
+                    ...period.variableCosts.map((vc) => {
+                      const effectiveActual =
+                        period.syncVariableWithTrackers && vc.linkedToTracker === 'DAILY'
+                          ? summary.dailyTrackerTotal
+                          : period.syncVariableWithTrackers && vc.linkedToTracker === 'HANGOUT'
+                          ? summary.hangoutTrackerTotal
+                          : vc.actual;
+                      return {
+                        id: vc.id,
+                        label: vc.title,
+                        planned: vc.planned,
+                        actual: effectiveActual,
+                      };
+                    }),
+                    {
+                      id: 'vc-sub-ops',
+                      label: 'Pos Operasional & Belanja Harian',
+                      planned: 1_000_000,
+                      actual: summary.dailyTrackerOperationalTotal,
+                    },
+                    {
+                      id: 'vc-sub-aira',
+                      label: 'Pos Jajan De Aira + Nabung (20x)',
+                      planned: 2_000_000,
+                      actual: summary.dailyTrackerAiraSavingTotal,
+                    },
+                  ];
+
+                  const maxVarVal = Math.max(
+                    1,
+                    ...variableTrafficRows.flatMap((r) => [r.planned, r.actual])
+                  );
+
+                  return variableTrafficRows.map((row, idx) => {
+                    const plannedPct = Math.min(
+                      100,
+                      Math.max(5, Math.round((row.planned / maxVarVal) * 100))
+                    );
+                    const actualPct = Math.min(
+                      100,
+                      Math.max(5, Math.round((row.actual / maxVarVal) * 100))
+                    );
+                    const ratioPct =
+                      row.planned > 0 ? Math.round((row.actual / row.planned) * 100) : 0;
+                    const isOver = row.actual > row.planned && row.planned > 0;
+                    const isHovered = hoveredVarBarIdx === idx;
+
+                    return (
+                      <div
+                        key={row.id}
+                        onMouseEnter={() => setHoveredVarBarIdx(idx)}
+                        onMouseLeave={() => setHoveredVarBarIdx(null)}
+                        style={{
+                          transform: isHovered ? 'translateZ(10px) scale(1.01)' : 'translateZ(0px)',
+                          transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                        }}
+                        className={`p-2.5 rounded-xl border transition-all ${
+                          isHovered
+                            ? 'bg-slate-900/90 border-amber-400/45 shadow-md'
+                            : 'bg-slate-950/60 border-white/5'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-xs mb-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-medium text-white truncate">{row.label}</span>
+                            <span
+                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+                                isOver
+                                  ? 'bg-rose-500/20 text-rose-300'
+                                  : 'bg-emerald-500/20 text-emerald-300'
+                              }`}
+                            >
+                              {ratioPct}%
+                            </span>
+                          </div>
+                          <div className="font-mono tabular-nums text-[11px] flex items-center gap-1.5 shrink-0">
+                            <span className="text-slate-400">Rencana: {formatIDR(row.planned)}</span>
+                            <span className="text-slate-600">·</span>
+                            <span
+                              className={
+                                isOver
+                                  ? 'text-rose-400 font-semibold'
+                                  : 'text-amber-300 font-semibold'
+                              }
+                            >
+                              Aktual: {formatIDR(row.actual)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Dual 3D Shimmer Bars */}
+                        <div className="space-y-1">
+                          <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden p-0.5">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-slate-500 to-slate-400 liquid-bar-fill"
+                              style={{ width: `${plannedPct}%` }}
+                            />
+                          </div>
+                          <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden p-0.5">
+                            <div
+                              className={`h-full rounded-full liquid-bar-fill bg-gradient-to-r ${
+                                isOver
+                                  ? 'from-rose-500 via-amber-400 to-orange-400'
+                                  : 'from-amber-500 via-yellow-400 to-emerald-400'
+                              }`}
+                              style={{ width: `${actualPct}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
             </div>
 
             <div className="mt-4 space-y-4">
@@ -655,20 +1129,39 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                         </p>
                       </div>
                       {isEditing ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onUpdateVariableCost({
-                              ...vc,
-                              planned: Number(editPlanned) || 0,
-                              actual: Number(editActual) || 0,
-                            });
-                            setEditingId(null);
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-500 text-slate-950 text-xs font-semibold cursor-pointer"
-                        >
-                          Simpan
-                        </button>
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const pVal = Number(editPlanned) || 0;
+                              const aVal = Number(editActual) || 0;
+                              onUpdateVariableCost({
+                                ...vc,
+                                planned: pVal,
+                                actual: aVal,
+                              });
+                              setEditingId(null);
+                              onTriggerPopup?.(
+                                'REVISED',
+                                'SIMPAN PLAFON VARIABLE COST',
+                                'Plafon Variable Cost Disimpan',
+                                `Plafon rencana "${vc.title}" berhasil diperbarui menjadi ${formatIDR(
+                                  pVal
+                                )}.`
+                              );
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-500 text-slate-950 text-xs font-semibold cursor-pointer"
+                          >
+                            Simpan
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelInlineEdit(vc.title)}
+                            className="px-2 py-1 rounded-lg bg-slate-800 text-slate-300 hover:text-amber-300 text-xs cursor-pointer"
+                          >
+                            Batal
+                          </button>
+                        </div>
                       ) : (
                         <button
                           type="button"
