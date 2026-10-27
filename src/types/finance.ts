@@ -6,7 +6,7 @@ export interface FixedCostItem {
   id: string;
   dueDay: string;
   title: string;
-  methodOrPriority: PaymentMethod | 'Optional';
+  methodOrPriority: PaymentMethod | 'Optional' | string;
   planned: number;
   actual: number;
   isPaid: boolean; // true = ✅, false = ⭕

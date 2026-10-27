@@ -65,9 +65,19 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
   onTriggerPopup,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDueDay, setEditDueDay] = useState<string>('01');
+  const [editTitle, setEditTitle] = useState<string>('');
+  const [editMethodOrPriority, setEditMethodOrPriority] = useState<string>('GOPAY');
+  const [editCustomMethod, setEditCustomMethod] = useState<string>('');
+  const [isEditCustomMethod, setIsEditCustomMethod] = useState<boolean>(false);
   const [editPlanned, setEditPlanned] = useState<string>('0');
   const [editActual, setEditActual] = useState<string>('0');
   const [editIsPaid, setEditIsPaid] = useState<boolean>(false);
+
+  // Filter state for 01. Pengeluaran Tetap · Fixed Cost & Operasional Rumah
+  const [fixedMethodFilter, setFixedMethodFilter] = useState<string>('ALL');
+  const [fixedStatusFilter, setFixedStatusFilter] = useState<'ALL' | 'UNPAID' | 'PAID'>('ALL');
+  const [fixedSearchQuery, setFixedSearchQuery] = useState<string>('');
 
   // 3D Perspective Tilt states for Section 02 (Subscription & Debt) and Section 03 (Variable Cost)
   const [subDebtTilt3D, setSubDebtTilt3D] = useState<{ rotateX: number; rotateY: number }>({
@@ -106,7 +116,8 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
   const [showAddFixed, setShowAddFixed] = useState(false);
   const [newFixedDay, setNewFixedDay] = useState('05');
   const [newFixedTitle, setNewFixedTitle] = useState('');
-  const [newFixedMethod, setNewFixedMethod] = useState<PaymentMethod | 'Optional'>('GOPAY');
+  const [newFixedMethod, setNewFixedMethod] = useState<string>('GOPAY');
+  const [newFixedCustomMethod, setNewFixedCustomMethod] = useState<string>('');
   const [newFixedPlanned, setNewFixedPlanned] = useState('');
   const [newFixedActual, setNewFixedActual] = useState('');
 
@@ -124,8 +135,47 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
   const [newIncomeType, setNewIncomeType] = useState<'Utama' | 'Sampingan'>('Sampingan');
   const [newIncomeAmount, setNewIncomeAmount] = useState('');
 
-  const startInlineEdit = (id: string, planned: number, actual: number, isPaid = false) => {
+  const PRESET_FIXED_CHANNELS = ['GOPAY', 'DANA', 'BRI', 'BCA', 'BSI', 'COD', 'TF', 'Optional'];
+
+  const allFixedChannels = Array.from(
+    new Set([
+      ...PRESET_FIXED_CHANNELS,
+      ...period.fixedCosts.map((fc) => fc.methodOrPriority).filter(Boolean),
+    ])
+  );
+
+  const filteredFixedCosts = period.fixedCosts.filter((item) => {
+    const matchesMethod =
+      fixedMethodFilter === 'ALL' || item.methodOrPriority === fixedMethodFilter;
+    const matchesStatus =
+      fixedStatusFilter === 'ALL' ||
+      (fixedStatusFilter === 'PAID' && item.isPaid) ||
+      (fixedStatusFilter === 'UNPAID' && !item.isPaid);
+    const q = fixedSearchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !q ||
+      item.title.toLowerCase().includes(q) ||
+      item.dueDay.toLowerCase().includes(q) ||
+      item.methodOrPriority.toLowerCase().includes(q);
+    return matchesMethod && matchesStatus && matchesSearch;
+  });
+
+  const startInlineEdit = (
+    id: string,
+    planned: number,
+    actual: number,
+    isPaid = false,
+    dueDay = '01',
+    title = '',
+    methodOrPriority = 'GOPAY'
+  ) => {
     setEditingId(id);
+    setEditDueDay(dueDay);
+    setEditTitle(title);
+    const isPreset = PRESET_FIXED_CHANNELS.includes(methodOrPriority);
+    setEditMethodOrPriority(isPreset ? methodOrPriority : '__CUSTOM__');
+    setEditCustomMethod(isPreset ? '' : methodOrPriority);
+    setIsEditCustomMethod(!isPreset);
     setEditPlanned(String(planned));
     setEditActual(String(actual));
     setEditIsPaid(isPaid);
@@ -146,10 +196,14 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
     if (!newFixedTitle.trim()) return;
     const planned = Number(newFixedPlanned) || 0;
     const actual = Number(newFixedActual) || 0;
+    const resolvedMethod =
+      newFixedMethod === '__CUSTOM__'
+        ? newFixedCustomMethod.trim().toUpperCase() || 'GOPAY'
+        : newFixedMethod;
     onAddFixedCost({
       dueDay: newFixedDay.trim() || '01',
       title: newFixedTitle.trim(),
-      methodOrPriority: newFixedMethod,
+      methodOrPriority: resolvedMethod,
       planned,
       actual,
       isPaid: false,
@@ -158,11 +212,12 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
       'SUCCESS',
       'SIMPAN POS TETAP',
       'Pos Pengeluaran Tetap Berhasil Disimpan',
-      `Pos "${newFixedTitle.trim()}" (Rencana: ${formatIDR(planned)}, Aktual: ${formatIDR(
-        actual
-      )}) berhasil disimpan ke database.`
+      `Pos "${newFixedTitle.trim()}" (Tgl: ${newFixedDay.trim() || '01'}, Metode: ${resolvedMethod}, Rencana: ${formatIDR(
+        planned
+      )}, Aktual: ${formatIDR(actual)}) berhasil disimpan & disinkronkan ke database.`
     );
     setNewFixedTitle('');
+    setNewFixedCustomMethod('');
     setNewFixedPlanned('');
     setNewFixedActual('');
     setShowAddFixed(false);
@@ -223,10 +278,10 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
           <div>
             <h2 className="text-base font-semibold text-white">
-              01. Pengeluaran Tetap · Fixed Cost & Operasional Rumah
+              01. Pengeluaran Tetap · Fixed Cost &amp; Operasional Rumah
             </h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              Klik ikon status untuk mengubah Lunas/Belum Lunas, atau klik Edit untuk menyesuaikan nominal Rencana & Aktual
+              Bisa filter Metode/Kanal &amp; klik Revisi untuk merubah semuanya (Tgl, Keterangan Operasional, Metode/Kanal, Rencana, Aktual &amp; Status Lunas)
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -243,6 +298,79 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
               <Plus className="w-3.5 h-3.5" />
               <span>Tambah Pos Tetap</span>
             </button>
+          </div>
+        </div>
+
+        {/* FILTER BAR: METODE / KANAL, STATUS LUNAS & PENCARIAN POS OPERASIONAL */}
+        <div className="mt-4 p-3.5 rounded-2xl liquid-glass-inset border border-white/10 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-slate-300 mr-1">
+              Filter Metode / Kanal:
+            </span>
+            <button
+              type="button"
+              onClick={() => setFixedMethodFilter('ALL')}
+              data-testid="fixed-filter-method-ALL"
+              className={`px-2.5 py-1 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
+                fixedMethodFilter === 'ALL'
+                  ? 'bg-emerald-500 text-slate-950 shadow'
+                  : 'bg-slate-900/80 text-slate-300 hover:text-white border border-white/10'
+              }`}
+            >
+              Semua ({period.fixedCosts.length})
+            </button>
+            {allFixedChannels.map((ch) => {
+              const count = period.fixedCosts.filter((f) => f.methodOrPriority === ch).length;
+              return (
+                <button
+                  key={ch}
+                  type="button"
+                  onClick={() => setFixedMethodFilter(ch)}
+                  data-testid={`fixed-filter-method-${ch}`}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-mono font-medium transition-all cursor-pointer ${
+                    fixedMethodFilter === ch
+                      ? 'bg-emerald-500 text-slate-950 font-semibold shadow'
+                      : 'bg-slate-900/80 text-slate-300 hover:text-white border border-white/10'
+                  }`}
+                >
+                  {ch} {count > 0 ? `(${count})` : ''}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
+              {(
+                [
+                  { id: 'ALL', label: 'Semua' },
+                  { id: 'UNPAID', label: 'Belum Lunas' },
+                  { id: 'PAID', label: 'Lunas' },
+                ] as const
+              ).map((st) => (
+                <button
+                  key={st.id}
+                  type="button"
+                  onClick={() => setFixedStatusFilter(st.id)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium cursor-pointer ${
+                    fixedStatusFilter === st.id
+                      ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-400/40 font-semibold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+
+            <input
+              type="text"
+              value={fixedSearchQuery}
+              onChange={(e) => setFixedSearchQuery(e.target.value)}
+              placeholder="Cari Tgl / Keterangan / Kanal..."
+              aria-label="Cari pos pengeluaran tetap"
+              className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-100 placeholder-slate-500 min-w-[180px]"
+            />
           </div>
         </div>
 
@@ -273,19 +401,30 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Metode / Prioritas</label>
-              <select
-                value={newFixedMethod}
-                onChange={(e) => setNewFixedMethod(e.target.value as PaymentMethod | 'Optional')}
-                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-100"
-              >
-                <option value="GOPAY">GOPAY</option>
-                <option value="DANA">DANA</option>
-                <option value="BRI">BRI</option>
-                <option value="BCA">BCA</option>
-                <option value="BSI">BSI</option>
-                <option value="Optional">Optional</option>
-              </select>
+              <label className="block text-xs text-slate-400 mb-1">Metode / Kanal</label>
+              <div className="space-y-1.5">
+                <select
+                  value={newFixedMethod}
+                  onChange={(e) => setNewFixedMethod(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-100 font-mono"
+                >
+                  {allFixedChannels.map((ch) => (
+                    <option key={ch} value={ch}>
+                      {ch}
+                    </option>
+                  ))}
+                  <option value="__CUSTOM__">+ Ketik Kanal Sendiri...</option>
+                </select>
+                {newFixedMethod === '__CUSTOM__' && (
+                  <input
+                    type="text"
+                    value={newFixedCustomMethod}
+                    onChange={(e) => setNewFixedCustomMethod(e.target.value)}
+                    placeholder="Ketik Metode/Kanal (mis. SHOPEEPAY)"
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-emerald-500/50 text-xs text-emerald-300 font-mono"
+                  />
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Rencana (Rp)</label>
@@ -332,13 +471,123 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-xs">
-              {period.fixedCosts.map((item) => {
+              {filteredFixedCosts.map((item) => {
                 const isEditing = editingId === item.id;
                 return (
-                  <tr key={item.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3 pr-3 font-mono tabular-nums text-slate-400">{item.dueDay}</td>
-                    <td className="py-3 px-3 font-medium text-slate-100">{item.title}</td>
-                    <td className="py-3 px-3 text-slate-300 font-mono">{item.methodOrPriority}</td>
+                  <tr
+                    key={item.id}
+                    className={`transition-colors ${
+                      isEditing ? 'bg-slate-800/60' : 'hover:bg-slate-800/30'
+                    }`}
+                  >
+                    <td className="py-3 pr-3 font-mono tabular-nums text-slate-400">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editDueDay}
+                          onChange={(e) => setEditDueDay(e.target.value)}
+                          aria-label={`Tgl ${item.title}`}
+                          className="w-16 px-2 py-1 rounded bg-slate-950 border border-emerald-500/50 font-mono text-xs text-slate-100 text-center"
+                          placeholder="02"
+                        />
+                      ) : (
+                        item.dueDay
+                      )}
+                    </td>
+                    <td className="py-3 px-3 font-medium text-slate-100">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          aria-label={`Keterangan Operasional ${item.title}`}
+                          className="w-full min-w-[180px] px-2.5 py-1 rounded bg-slate-950 border border-emerald-500/50 text-xs text-slate-100"
+                          placeholder="Nama Pos Operasional"
+                        />
+                      ) : (
+                        item.title
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-slate-300 font-mono">
+                      {isEditing ? (
+                        <div className="flex flex-col gap-1 min-w-[135px]">
+                          <select
+                            value={isEditCustomMethod ? '__CUSTOM__' : editMethodOrPriority}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '__CUSTOM__') {
+                                setIsEditCustomMethod(true);
+                                setEditMethodOrPriority('__CUSTOM__');
+                              } else {
+                                setIsEditCustomMethod(false);
+                                setEditMethodOrPriority(val);
+                              }
+                            }}
+                            aria-label={`Metode atau Kanal ${item.title}`}
+                            className="px-2 py-1 rounded bg-slate-950 border border-emerald-500/50 font-mono text-xs text-emerald-300"
+                          >
+                            {allFixedChannels.map((ch) => (
+                              <option key={ch} value={ch}>
+                                {ch}
+                              </option>
+                            ))}
+                            <option value="__CUSTOM__">+ Ketik Sendiri...</option>
+                          </select>
+                          {isEditCustomMethod && (
+                            <input
+                              type="text"
+                              value={editCustomMethod}
+                              onChange={(e) => setEditCustomMethod(e.target.value)}
+                              aria-label={`Ketik Metode Kustom ${item.title}`}
+                              placeholder="Ketik Metode/Kanal..."
+                              className="px-2 py-1 rounded bg-slate-950 border border-cyan-400/60 font-mono text-xs text-cyan-300"
+                            />
+                          )}
+                        </div>
+                      ) : (
+                        <select
+                          value={item.methodOrPriority}
+                          onChange={(e) => {
+                            const nextMethod = e.target.value;
+                            if (nextMethod === '__EDIT_CUSTOM__') {
+                              startInlineEdit(
+                                item.id,
+                                item.planned,
+                                item.actual,
+                                item.isPaid,
+                                item.dueDay,
+                                item.title,
+                                item.methodOrPriority
+                              );
+                              setIsEditCustomMethod(true);
+                              setEditCustomMethod(item.methodOrPriority);
+                              return;
+                            }
+                            const updatedItem: FixedCostItem = {
+                              ...item,
+                              methodOrPriority: nextMethod,
+                              updatedAt: new Date().toISOString(),
+                            };
+                            onUpdateFixedCost(updatedItem);
+                            onTriggerPopup?.(
+                              'REVISED',
+                              'UBAH METODE / KANAL FIXED COST',
+                              `Metode / Kanal "${item.title}" Diperbarui`,
+                              `Metode/Kanal untuk pos "${item.title}" berhasil diubah dari ${item.methodOrPriority} menjadi ${nextMethod} dan langsung disinkronkan ke database.`
+                            );
+                          }}
+                          aria-label={`Pilih Metode Kanal ${item.title}`}
+                          className="px-2 py-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-white/10 hover:border-emerald-400/40 font-mono text-xs text-emerald-300 cursor-pointer"
+                        >
+                          {allFixedChannels.map((ch) => (
+                            <option key={ch} value={ch}>
+                              {ch}
+                            </option>
+                          ))}
+                          <option value="__EDIT_CUSTOM__">+ Revisi / Ketik Kanal...</option>
+                        </select>
+                      )}
+                    </td>
                     <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-300">
                       {isEditing ? (
                         <input
@@ -425,8 +674,17 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                               onClick={() => {
                                 const pVal = Number(editPlanned) || 0;
                                 const aVal = Number(editActual) || 0;
+                                const finalTitle = editTitle.trim() || item.title;
+                                const finalDay = editDueDay.trim() || item.dueDay;
+                                const finalMethod = isEditCustomMethod
+                                  ? editCustomMethod.trim().toUpperCase() || item.methodOrPriority
+                                  : editMethodOrPriority || item.methodOrPriority;
+
                                 onUpdateFixedCost({
                                   ...item,
+                                  dueDay: finalDay,
+                                  title: finalTitle,
+                                  methodOrPriority: finalMethod,
                                   planned: pVal,
                                   actual: aVal,
                                   isPaid: editIsPaid,
@@ -435,7 +693,15 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                                 setEditingId(null);
                                 const updatedList = period.fixedCosts.map((fc) =>
                                   fc.id === item.id
-                                    ? { ...fc, planned: pVal, actual: aVal, isPaid: editIsPaid }
+                                    ? {
+                                        ...fc,
+                                        dueDay: finalDay,
+                                        title: finalTitle,
+                                        methodOrPriority: finalMethod,
+                                        planned: pVal,
+                                        actual: aVal,
+                                        isPaid: editIsPaid,
+                                      }
                                     : fc
                                 );
                                 const newPlannedSum = updatedList
@@ -446,15 +712,15 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                                   .reduce((acc, fc) => acc + fc.actual, 0);
                                 onTriggerPopup?.(
                                   'REVISED',
-                                  'SIMPAN REVISI FIXED COST',
+                                  'SIMPAN REVISI LENGKAP FIXED COST',
                                   editIsPaid
-                                    ? `Pos "${item.title}" Lunas & Total Fixed Cost Berkurang`
-                                    : 'Revisi Pengeluaran Tetap Berhasil Disimpan',
-                                  `Pos "${item.title}" disimpan (${
+                                    ? `Pos "${finalTitle}" Lunas & Total Fixed Cost Berkurang`
+                                    : `Revisi Lengkap "${finalTitle}" Berhasil Disimpan`,
+                                  `Pos "${finalTitle}" (Tgl: ${finalDay}, Metode/Kanal: ${finalMethod}, ${
                                     editIsPaid ? 'Status: LUNAS ✅' : 'Status: BELUM LUNAS'
                                   }, Rencana ${formatIDR(pVal)}, Aktual ${formatIDR(
                                     aVal
-                                  )}). TOTAL PENGELUARAN TETAP (FIXED COST) kini menjadi Rencana ${formatIDR(
+                                  )}) telah disimpan ke database. TOTAL PENGELUARAN TETAP (FIXED COST) kini menjadi Rencana ${formatIDR(
                                     newPlannedSum
                                   )} & Aktual ${formatIDR(newActualSum)}.`
                                 );
@@ -480,7 +746,15 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                             <button
                               type="button"
                               onClick={() =>
-                                startInlineEdit(item.id, item.planned, item.actual, item.isPaid)
+                                startInlineEdit(
+                                  item.id,
+                                  item.planned,
+                                  item.actual,
+                                  item.isPaid,
+                                  item.dueDay,
+                                  item.title,
+                                  item.methodOrPriority
+                                )
                               }
                               aria-label={`Edit ${item.title}`}
                               className="px-2 py-1 rounded-lg text-slate-300 hover:text-emerald-400 hover:bg-slate-800 inline-flex items-center gap-1 text-xs cursor-pointer"

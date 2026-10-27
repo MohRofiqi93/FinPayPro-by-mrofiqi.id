@@ -396,7 +396,15 @@ export const Modern3DLoginPortal: React.FC<Modern3DLoginPortalProps> = ({ onAuth
             </div>
           </div>
           <span className="text-base sm:text-lg font-bold tracking-tight bg-gradient-to-r from-white via-emerald-200 to-cyan-300 bg-clip-text text-transparent">
-            FinPay Pro Enterprise · mrofiqi.id
+            FinPay Pro Enterprise ·{' '}
+            <a
+              href="https://www.mrofiqi.id/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-emerald-400/60 hover:text-emerald-300 transition-colors cursor-pointer"
+            >
+              mrofiqi.id
+            </a>
           </span>
         </div>
 
@@ -666,7 +674,14 @@ export const Modern3DLoginPortal: React.FC<Modern3DLoginPortalProps> = ({ onAuth
       {/* Quiet Footer */}
       <footer className="relative z-20 max-w-7xl w-full mx-auto px-6 py-4 text-center sm:text-left flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 border-t border-white/10">
         <span>FinPay Pro Enterprise · Arsitektur Finansial &amp; Cloud Sync</span>
-        <span className="font-mono">mrofiqi.id</span>
+        <a
+          href="https://www.mrofiqi.id/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-emerald-400 hover:text-emerald-300 underline decoration-emerald-400/50 transition-colors cursor-pointer"
+        >
+          mrofiqi.id
+        </a>
       </footer>
     </div>
   );

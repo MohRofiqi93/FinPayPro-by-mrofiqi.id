@@ -617,7 +617,24 @@ export const AdminEnterpriseHubView: React.FC<AdminEnterpriseHubViewProps> = ({
                 <tbody className="divide-y divide-slate-800/60">
                   {usersSheet.map((u) => (
                     <tr key={u.email} className="hover:bg-white/[0.03]">
-                      <td className="py-3 pr-3 font-mono text-emerald-300">{u.email}</td>
+                      <td className="py-3 pr-3 font-mono text-emerald-300">
+                        {u.email.includes('mrofiqi.id') ? (
+                          <>
+                            {u.email.split('mrofiqi.id')[0]}
+                            <a
+                              href="https://www.mrofiqi.id/"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-emerald-400 hover:text-emerald-300 underline decoration-emerald-400/60 underline-offset-2 font-semibold"
+                            >
+                              mrofiqi.id
+                            </a>
+                            {u.email.split('mrofiqi.id')[1]}
+                          </>
+                        ) : (
+                          u.email
+                        )}
+                      </td>
                       <td className="py-3 px-3 font-medium text-white">{u.nama}</td>
                       <td className="py-3 px-3 font-mono">
                         <span

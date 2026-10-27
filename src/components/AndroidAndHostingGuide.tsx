@@ -58,16 +58,43 @@ export const AndroidAndHostingGuide: React.FC = () => {
           <Smartphone className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
           <div>
             <h2 className="text-base font-semibold text-slate-100">
-              Pusat Build Android (.APK & .AAB) + Tutorial Hosting Rumahweb (mrofiqi.id)
+              Pusat Build Android (.APK &amp; .AAB) + Tutorial Hosting Rumahweb (
+              <a
+                href="https://www.mrofiqi.id/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 hover:text-emerald-300 underline decoration-emerald-400/60"
+              >
+                mrofiqi.id
+              </a>
+              )
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Project ini sudah dilengkapi <strong>GitHub Actions Auto-Builder (.apk & .aab)</strong>, konfigurasi <strong>Capacitor Android (`id.mrofiqi.finplanner`)</strong>, serta <strong>`.htaccess` cPanel Rumahweb</strong>.
+              Project ini sudah dilengkapi <strong>GitHub Actions Auto-Builder (.apk &amp; .aab)</strong>, konfigurasi <strong>Capacitor Android (`id.mrofiqi.finplanner`)</strong>, serta <strong>`.htaccess` cPanel Rumahweb</strong> untuk{' '}
+              <a
+                href="https://www.mrofiqi.id/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 hover:underline font-mono"
+              >
+                mrofiqi.id
+              </a>
+              .
             </p>
           </div>
         </div>
 
         {/* Tombol In-App Install PWA / Android */}
         <div className="flex items-center gap-2">
+          <a
+            href="https://www.mrofiqi.id/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3.5 py-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>Buka mrofiqi.id</span>
+          </a>
           {!isInstalled && isInstallable && (
             <button
               type="button"
@@ -102,7 +129,16 @@ export const AndroidAndHostingGuide: React.FC = () => {
             Cara Install Langsung Tanpa Menunggu Build APK (10 Detik):
           </p>
           <p>
-            1. Buka alamat website aplikasi ini (atau nanti setelah online di <strong>https://fin.mrofiqi.id</strong>) menggunakan browser <strong>Google Chrome</strong> di HP Android Anda.
+            1. Buka alamat website aplikasi ini (atau di{' '}
+            <a
+              href="https://www.mrofiqi.id/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-400 underline font-semibold"
+            >
+              mrofiqi.id
+            </a>
+            ) menggunakan browser <strong>Google Chrome</strong> di HP Android Anda.
           </p>
           <p>
             2. Ketuk ikon <strong>Titik Tiga (⋮)</strong> di pojok kanan atas Chrome, lalu pilih <strong>"Tambahkan ke Layar Utama" / "Install Aplikasi"</strong>. Aplikasi langsung terpasang dengan ikon <strong>FinPlanner</strong> di menu HP Anda dan bisa dibuka <strong>100% Offline</strong>!
@@ -122,7 +158,7 @@ export const AndroidAndHostingGuide: React.FC = () => {
           }`}
         >
           <FolderGit2 className="w-4 h-4" />
-          <span>1. Ambil File .APK & .AAB via GitHub (Otomatis)</span>
+          <span>1. Ambil File .APK &amp; .AAB via GitHub (Otomatis)</span>
         </button>
 
         <button
@@ -148,7 +184,7 @@ export const AndroidAndHostingGuide: React.FC = () => {
           }`}
         >
           <PackageCheck className="w-4 h-4" />
-          <span>3. Alternatif 1-Klik .APK & .AAB (PWABuilder)</span>
+          <span>3. Alternatif 1-Klik .APK &amp; .AAB (PWABuilder)</span>
         </button>
       </div>
 
@@ -160,7 +196,7 @@ export const AndroidAndHostingGuide: React.FC = () => {
               Kabar Baik: Anda TIDAK Perlu Install Android Studio di Laptop!
             </p>
             <p className="text-slate-300 leading-relaxed">
-              Karena Anda sudah punya akun <strong>GitHub</strong>, kami sudah menanamkan robot pembuat APK & AAB otomatis di dalam project ini (file <code>.github/workflows/build-android-apk-aab.yml</code> dan <code>capacitor.config.json</code> dengan Package ID <code>id.mrofiqi.finplanner</code>).
+              Karena Anda sudah punya akun <strong>GitHub</strong>, kami sudah menanamkan robot pembuat APK &amp; AAB otomatis di dalam project ini (file <code>.github/workflows/build-android-apk-aab.yml</code> dan <code>capacitor.config.json</code> dengan Package ID <code>id.mrofiqi.finplanner</code>).
             </p>
           </div>
 
@@ -177,13 +213,13 @@ export const AndroidAndHostingGuide: React.FC = () => {
               <span className="font-mono text-amber-300 font-semibold">LANGKAH 2</span>
               <h3 className="text-sm font-semibold text-slate-100">Buka Menu "Actions" di GitHub</h3>
               <p className="text-slate-400 leading-relaxed">
-                Buka repository Anda di GitHub.com → klik tab <strong>Actions</strong> di bagian atas. Anda akan melihat proses <strong>"Build Android APK & AAB + Paket Hosting Rumahweb"</strong> berjalan otomatis selama ±3 menit hingga centang hijau.
+                Buka repository Anda di GitHub.com → klik tab <strong>Actions</strong> di bagian atas. Anda akan melihat proses <strong>"Build Android APK &amp; AAB + Paket Hosting Rumahweb"</strong> berjalan otomatis selama ±3 menit hingga centang hijau.
               </p>
             </div>
 
             <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
               <span className="font-mono text-sky-400 font-semibold">LANGKAH 3</span>
-              <h3 className="text-sm font-semibold text-slate-100">Download .APK, .AAB & .ZIP</h3>
+              <h3 className="text-sm font-semibold text-slate-100">Download .APK, .AAB &amp; .ZIP</h3>
               <p className="text-slate-400 leading-relaxed">
                 Klik hasil proses yang sudah centang hijau tersebut, gulir ke bagian paling bawah (<strong>Artifacts</strong>), lalu klik <strong>Paket-Lengkap-APK-AAB-dan-Hosting-mrofiqi-id</strong> untuk mengunduh:
               </p>
@@ -209,7 +245,16 @@ export const AndroidAndHostingGuide: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-emerald-400" />
                 <h3 className="text-sm font-semibold text-slate-100">
-                  Tutorial Lengkap Upload ke Hosting Rumahweb (Domain: mrofiqi.id)
+                  Tutorial Lengkap Upload ke Hosting Rumahweb (Domain:{' '}
+                  <a
+                    href="https://www.mrofiqi.id/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-400 underline"
+                  >
+                    mrofiqi.id
+                  </a>
+                  )
                 </h3>
               </div>
               <span className="font-mono text-[11px] text-emerald-400">
@@ -220,23 +265,54 @@ export const AndroidAndHostingGuide: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
               <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5">
                 <p className="font-semibold text-emerald-400">
-                  Tahap 1: Login Clientzone Rumahweb & Masuk cPanel
+                  Tahap 1: Login Clientzone Rumahweb &amp; Masuk cPanel
                 </p>
                 <ol className="list-decimal list-inside text-slate-300 space-y-1 leading-relaxed">
                   <li>Buka <strong>https://new.clientzone.rumahweb.com/</strong> dan login dengan akun Anda.</li>
-                  <li>Pilih menu <strong>Hosting</strong> di sebelah kiri → klik tombol <strong>Manage</strong> pada layanan hosting <code>mrofiqi.id</code>.</li>
+                  <li>
+                    Pilih menu <strong>Hosting</strong> di sebelah kiri → klik tombol <strong>Manage</strong> pada layanan hosting{' '}
+                    <a
+                      href="https://www.mrofiqi.id/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-emerald-400 underline font-mono"
+                    >
+                      mrofiqi.id
+                    </a>
+                    .
+                  </li>
                   <li>Klik tombol <strong>Login to cPanel</strong>.</li>
                 </ol>
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5">
                 <p className="font-semibold text-amber-300">
-                  Tahap 2: Buat Subdomain Khusus (Rekomendasi: fin.mrofiqi.id)
+                  Tahap 2: Buat Subdomain Khusus (Rekomendasi:{' '}
+                  <a
+                    href="https://www.mrofiqi.id/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    mrofiqi.id
+                  </a>
+                  )
                 </p>
                 <ol className="list-decimal list-inside text-slate-300 space-y-1 leading-relaxed">
                   <li>Di dalam cPanel, cari menu <strong>Domains</strong> → klik <strong>Create A New Domain</strong>.</li>
-                  <li>Ketik <code>fin.mrofiqi.id</code> (atau <code>planner.mrofiqi.id</code>).</li>
-                  <li>Hilangkan centang <em>"Share document root"</em> agar foldernya terpisah rapi di <code>fin.mrofiqi.id</code>, lalu klik <strong>Submit</strong>.</li>
+                  <li>
+                    Ketik subdomain pada{' '}
+                    <a
+                      href="https://www.mrofiqi.id/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-emerald-400 underline font-mono"
+                    >
+                      mrofiqi.id
+                    </a>
+                    .
+                  </li>
+                  <li>Hilangkan centang <em>"Share document root"</em> agar foldernya terpisah rapi, lalu klik <strong>Submit</strong>.</li>
                 </ol>
               </div>
 
@@ -245,7 +321,7 @@ export const AndroidAndHostingGuide: React.FC = () => {
                   Tahap 3: Upload File ZIP ke File Manager cPanel
                 </p>
                 <ol className="list-decimal list-inside text-slate-300 space-y-1 leading-relaxed">
-                  <li>Di cPanel, buka menu <strong>File Manager</strong> → masuk ke folder <code>fin.mrofiqi.id</code> (atau <code>public_html</code> jika ingin di domain utama).</li>
+                  <li>Di cPanel, buka menu <strong>File Manager</strong> → masuk ke folder domain <a href="https://www.mrofiqi.id/" target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline font-mono">mrofiqi.id</a> (atau <code>public_html</code>).</li>
                   <li>Klik tombol <strong>Upload</strong> di bagian atas → pilih file <strong><code>rumahweb-cpanel-mrofiqi-id.zip</code></strong> yang Anda dapat dari GitHub Actions (atau hasil perintah <code>npm run build</code> folder <code>dist</code>).</li>
                   <li>Klik kanan pada file <code>.zip</code> tersebut → pilih <strong>Extract</strong>.</li>
                 </ol>
@@ -253,10 +329,21 @@ export const AndroidAndHostingGuide: React.FC = () => {
 
               <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5">
                 <p className="font-semibold text-emerald-400">
-                  Tahap 4: Selesai! Aplikasi Online & Bisa Diakses di HP/Laptop
+                  Tahap 4: Selesai! Aplikasi Online &amp; Bisa Diakses di HP/Laptop
                 </p>
                 <ol className="list-decimal list-inside text-slate-300 space-y-1 leading-relaxed">
-                  <li>Buka <strong>https://fin.mrofiqi.id</strong> di browser HP atau laptop Anda.</li>
+                  <li>
+                    Buka{' '}
+                    <a
+                      href="https://www.mrofiqi.id/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-emerald-400 underline font-semibold"
+                    >
+                      https://www.mrofiqi.id/
+                    </a>{' '}
+                    di browser HP atau laptop Anda.
+                  </li>
                   <li>File <code>.htaccess</code> sudah otomatis terpasang sehingga SSL HTTPS, mode Offline (Service Worker), dan Auto-Sync Google Sheets langsung berjalan lancar!</li>
                 </ol>
               </div>
@@ -286,17 +373,44 @@ export const AndroidAndHostingGuide: React.FC = () => {
       {activeGuideTab === 'PWABUILDER' && (
         <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3 text-xs">
           <h3 className="text-sm font-semibold text-slate-100">
-            Cara Alternatif Paling Mudah: Buat .APK & .AAB dari Website mrofiqi.id lewat PWABuilder (Resmi Microsoft)
+            Cara Alternatif Paling Mudah: Buat .APK &amp; .AAB dari Website{' '}
+            <a
+              href="https://www.mrofiqi.id/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-400 underline"
+            >
+              mrofiqi.id
+            </a>{' '}
+            lewat PWABuilder (Resmi Microsoft)
           </h3>
           <p className="text-slate-300 leading-relaxed">
-            Aplikasi ini sudah kami lengkapi dengan standar penuh <strong>Web App Manifest (`manifest.webmanifest`)</strong>, <strong>Service Worker Offline</strong>, dan <strong>Ikon 192px & 512px Maskable</strong>. Begitu website Anda aktif di <code>https://fin.mrofiqi.id</code>:
+            Aplikasi ini sudah kami lengkapi dengan standar penuh <strong>Web App Manifest (`manifest.webmanifest`)</strong>, <strong>Service Worker Offline</strong>, dan <strong>Ikon 192px &amp; 512px Maskable</strong>. Begitu website Anda aktif di{' '}
+            <a
+              href="https://www.mrofiqi.id/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-400 underline font-mono"
+            >
+              mrofiqi.id
+            </a>
+            :
           </p>
           <ol className="list-decimal list-inside text-slate-300 space-y-2 leading-relaxed">
             <li>
               Buka situs gratis <strong>https://www.pwabuilder.com</strong> di browser Anda.
             </li>
             <li>
-              Masukkan alamat domain Anda (misal: <code>https://fin.mrofiqi.id</code>) lalu klik <strong>Start</strong>.
+              Masukkan alamat domain Anda (misal:{' '}
+              <a
+                href="https://www.mrofiqi.id/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 underline font-mono"
+              >
+                https://www.mrofiqi.id/
+              </a>
+              ) lalu klik <strong>Start</strong>.
             </li>
             <li>
               Klik tombol <strong>Package for Stores</strong> → pada bagian <strong>Android</strong> klik <strong>Generate Package</strong>.

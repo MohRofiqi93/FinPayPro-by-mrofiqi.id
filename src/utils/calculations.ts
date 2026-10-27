@@ -44,6 +44,150 @@ export function computeDailyExpenseTotal(qty: number, unitPrice: number): number
   return Math.round(validQty * validPrice);
 }
 
+/**
+ * Parses tracker date strings ("DD/MM/YY", "DD/MM/YYYY", "YYYY-MM-DD", "DD-MM-YY")
+ * into a comparable numeric key YYYYMMDD (e.g., "25/10/26" -> 20261025).
+ */
+export function parseTrackerDateToSortKey(dateStr: string): number {
+  if (!dateStr || typeof dateStr !== 'string') return 99999999;
+  const cleaned = dateStr.trim();
+  if (!cleaned || cleaned === '-') return 99999999;
+
+  // Check ISO YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = cleaned.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (isoMatch) {
+    const year = Number(isoMatch[1]);
+    const month = Number(isoMatch[2]);
+    const day = Number(isoMatch[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return year * 10000 + month * 100 + day;
+    }
+  }
+
+  // Check DD/MM/YY or DD/MM/YYYY or DD-MM-YY
+  const dmyMatch = cleaned.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+  if (dmyMatch) {
+    const day = Number(dmyMatch[1]);
+    const month = Number(dmyMatch[2]);
+    let year = Number(dmyMatch[3]);
+    if (year < 100) {
+      year += 2000;
+    }
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return year * 10000 + month * 100 + day;
+    }
+  }
+
+  return 99999999;
+}
+
+/**
+ * Normalizes any date string or (day, month, year) parts into standard "DD/MM/YY" format
+ * (e.g. "2026-10-25" -> "25/10/26", or day=5, month=10, year=2026 -> "05/10/26").
+ */
+export function normalizeTrackerDateString(
+  rawDate: string,
+  dayPart?: string | number,
+  monthPart?: string | number,
+  yearPart?: string | number
+): string {
+  if (dayPart !== undefined && monthPart !== undefined && yearPart !== undefined) {
+    const d = Math.max(1, Math.min(31, Number(dayPart) || 1));
+    const m = Math.max(1, Math.min(12, Number(monthPart) || 1));
+    const yRaw = Number(yearPart) || 2026;
+    const yy = yRaw >= 100 ? String(yRaw).slice(-2) : String(yRaw).padStart(2, '0');
+    return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${yy}`;
+  }
+
+  const cleaned = (rawDate || '').trim();
+  const isoMatch = cleaned.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (isoMatch) {
+    const yy = isoMatch[1].slice(-2);
+    const mm = isoMatch[2].padStart(2, '0');
+    const dd = isoMatch[3].padStart(2, '0');
+    return `${dd}/${mm}/${yy}`;
+  }
+
+  const dmyMatch = cleaned.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+  if (dmyMatch) {
+    const dd = dmyMatch[1].padStart(2, '0');
+    const mm = dmyMatch[2].padStart(2, '0');
+    const yy = dmyMatch[3].length === 4 ? dmyMatch[3].slice(-2) : dmyMatch[3].padStart(2, '0');
+    return `${dd}/${mm}/${yy}`;
+  }
+
+  return cleaned || '01/10/26';
+}
+
+/**
+ * Sorts DailyExpenseItem[] chronologically using a stable sort.
+ * When a new item is appended at the end of the list before calling this function,
+ * items with the exact same date stay in insertion order (new item appears right after
+ * existing items of the same date), and items with earlier/later dates are placed
+ * in neat chronological sequence.
+ */
+export function sortDailyExpensesChronologically(
+  items: DailyExpenseItem[],
+  direction: 'ASC' | 'DESC' = 'ASC'
+): DailyExpenseItem[] {
+  return items
+    .map((item, idx) => ({ item, idx, key: parseTrackerDateToSortKey(item.date) }))
+    .sort((a, b) => {
+      if (a.key !== b.key) {
+        return direction === 'ASC' ? a.key - b.key : b.key - a.key;
+      }
+      return a.idx - b.idx;
+    })
+    .map((entry) => entry.item);
+}
+
+/**
+ * Sorts HangoutExpenseItem[] chronologically using a stable sort.
+ */
+export function sortHangoutExpensesChronologically(
+  items: HangoutExpenseItem[],
+  direction: 'ASC' | 'DESC' = 'ASC'
+): HangoutExpenseItem[] {
+  return items
+    .map((item, idx) => ({ item, idx, key: parseTrackerDateToSortKey(item.date) }))
+    .sort((a, b) => {
+      if (a.key !== b.key) {
+        return direction === 'ASC' ? a.key - b.key : b.key - a.key;
+      }
+      return a.idx - b.idx;
+    })
+    .map((entry) => entry.item);
+}
+
+/**
+ * Computes the latest modification timestamp (in epoch ms) across a list of MonthlyPeriodData.
+ * Used to determine whether localStorage or backend Cloud Vault has newer user revisions.
+ */
+export function getLatestPeriodsTimestamp(periods: MonthlyPeriodData[]): number {
+  if (!Array.isArray(periods) || periods.length === 0) return 0;
+  let maxTs = 0;
+  const checkIso = (iso?: string) => {
+    if (!iso) return;
+    const t = Date.parse(iso);
+    if (Number.isFinite(t) && t > maxTs) maxTs = t;
+  };
+  for (const p of periods) {
+    checkIso(p.updatedAt);
+    checkIso(p.createdAt);
+    p.fixedCosts?.forEach((i) => checkIso(i.updatedAt));
+    p.subscriptionsAndDebts?.forEach((i) => checkIso(i.updatedAt));
+    p.variableCosts?.forEach((i) => checkIso(i.updatedAt));
+    p.incomes?.forEach((i) => checkIso(i.updatedAt));
+    p.savings?.forEach((i) => checkIso(i.updatedAt));
+    p.accounts?.forEach((i) => checkIso(i.lastReconciledAt));
+    p.dailyExpenses?.forEach((i) => checkIso(i.updatedAt));
+    p.hangoutExpenses?.forEach((i) => checkIso(i.updatedAt));
+    p.revisionHistory?.forEach((i) => checkIso(i.timestamp));
+  }
+  return maxTs;
+}
+
+
 export function calculatePeriodSummary(period: MonthlyPeriodData): PeriodFinancialSummary {
   const isOpeningBalanceRevised = period.openingBalanceManualOverride !== null;
   const openingBalance = isOpeningBalanceRevised

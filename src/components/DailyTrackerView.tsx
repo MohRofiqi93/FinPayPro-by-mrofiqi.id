@@ -21,7 +21,14 @@ import {
   PaymentMethod,
   PeriodFinancialSummary,
 } from '../types/finance';
-import { computeDailyExpenseTotal, formatCompactIDR, formatIDR } from '../utils/calculations';
+import {
+  computeDailyExpenseTotal,
+  formatCompactIDR,
+  formatIDR,
+  normalizeTrackerDateString,
+  sortDailyExpensesChronologically,
+  sortHangoutExpensesChronologically,
+} from '../utils/calculations';
 import { TrackerExportFormat, triggerTrackerExportDownload } from '../utils/exportFormats';
 import { ActionPopupData } from './Modals';
 
@@ -44,6 +51,21 @@ interface DailyTrackerViewProps {
 
 const PAYMENT_METHODS: PaymentMethod[] = ['BRI', 'BCA', 'BSI', 'COD', 'TF', 'GOPAY', 'DANA'];
 
+const MONTH_OPTIONS = [
+  { value: '01', label: '01 - Jan' },
+  { value: '02', label: '02 - Feb' },
+  { value: '03', label: '03 - Mar' },
+  { value: '04', label: '04 - Apr' },
+  { value: '05', label: '05 - Mei' },
+  { value: '06', label: '06 - Jun' },
+  { value: '07', label: '07 - Jul' },
+  { value: '08', label: '08 - Agu' },
+  { value: '09', label: '09 - Sep' },
+  { value: '10', label: '10 - Okt' },
+  { value: '11', label: '11 - Nov' },
+  { value: '12', label: '12 - Des' },
+];
+
 export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
   period,
   summary,
@@ -55,8 +77,16 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
   onDeleteHangoutExpense,
   onTriggerPopup,
 }) => {
-  // Form State: New Daily Expense
-  const [date, setDate] = useState('26/10/26');
+  // Derive default month/year from active periodId (e.g., "2026-10" -> month "10", year "2026")
+  const defaultPeriodParts = period.periodId.split('-');
+  const defaultYear = defaultPeriodParts[0] || '2026';
+  const defaultMonth = defaultPeriodParts[1] || '10';
+
+  // Form State: New Daily Expense (Tanggal, Bulan, Tahun synchronized)
+  const [dayPart, setDayPart] = useState<string>('25');
+  const [monthPart, setMonthPart] = useState<string>(defaultMonth);
+  const [yearPart, setYearPart] = useState<string>(defaultYear);
+  const [date, setDate] = useState(`25/${defaultMonth}/${defaultYear.slice(-2)}`);
   const [description, setDescription] = useState('');
   const [qty, setQty] = useState<string>('1');
   const [unitPrice, setUnitPrice] = useState<string>('');
@@ -72,13 +102,15 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
   const [editUnitPrice, setEditUnitPrice] = useState('0');
   const [editMethod, setEditMethod] = useState<PaymentMethod>('BRI');
 
-  // Filter State
+  // Filter & Chronological Sort State
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<string>('ALL');
   const [tagFilter, setTagFilter] = useState<'ALL' | 'OPERASIONAL' | 'AIRA_SAVING'>('ALL');
+  const [dateFilter, setDateFilter] = useState<string>('ALL');
+  const [sortDirection, setSortDirection] = useState<'ASC' | 'DESC'>('ASC');
 
   // Form State: New Hangout / Nongkrong
-  const [hangoutDate, setHangoutDate] = useState('26/10/26');
+  const [hangoutDate, setHangoutDate] = useState(`26/${defaultMonth}/${defaultYear.slice(-2)}`);
   const [placeOrEvent, setPlaceOrEvent] = useState('');
   const [hangoutAmount, setHangoutAmount] = useState<string>('');
   const [hangoutMethod, setHangoutMethod] = useState<PaymentMethod>('GOPAY');
@@ -97,6 +129,23 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
 
   const computedTotal = computeDailyExpenseTotal(Number(qty) || 0, Number(unitPrice) || 0);
   const computedEditTotal = computeDailyExpenseTotal(Number(editQty) || 0, Number(editUnitPrice) || 0);
+
+  const handleDatePartsChange = (nextDay: string, nextMonth: string, nextYear: string) => {
+    setDayPart(nextDay);
+    setMonthPart(nextMonth);
+    setYearPart(nextYear);
+    setDate(normalizeTrackerDateString('', nextDay, nextMonth, nextYear));
+  };
+
+  const handleManualDateInput = (rawVal: string) => {
+    setDate(rawVal);
+    const m = rawVal.trim().match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+    if (m) {
+      setDayPart(m[1].padStart(2, '0'));
+      setMonthPart(m[2].padStart(2, '0'));
+      setYearPart(m[3].length === 2 ? `20${m[3]}` : m[3]);
+    }
+  };
 
   const handleExportFormat = (format: TrackerExportFormat) => {
     const res = triggerTrackerExportDownload(format, period, summary, tagFilter);
@@ -127,9 +176,10 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
     }
 
     setFormError(null);
+    const normalizedDate = normalizeTrackerDateString(date.trim() || `${dayPart}/${monthPart}/${yearPart}`);
     const totalVal = computeDailyExpenseTotal(numericQty, numericPrice);
     onAddDailyExpense({
-      date: date.trim() || '26/10/26',
+      date: normalizedDate,
       description: description.trim(),
       qty: numericQty,
       unitPrice: numericPrice,
@@ -140,11 +190,13 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
 
     onTriggerPopup?.(
       'SUCCESS',
-      'SIMPAN TRANSAKSI',
-      'Transaksi Harian Berhasil Disimpan',
-      `Transaksi "${description.trim()}" (${numericQty}x ${formatIDR(numericPrice)} = ${formatIDR(
+      'SIMPAN TRANSAKSI TERURUT',
+      'Transaksi Harian Berhasil Disimpan & Diurutkan',
+      `Transaksi "${description.trim()}" pada tanggal ${normalizedDate} (${numericQty}x ${formatIDR(
+        numericPrice
+      )} = ${formatIDR(
         totalVal
-      )}) melalui metode ${paymentMethod} berhasil disimpan ke database.`
+      )}) via ${paymentMethod} berhasil disimpan ke database dan diurutkan rapi sesuai urutan tanggal.`
     );
 
     setDescription('');
@@ -186,9 +238,10 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
     const numericQty = Math.max(1, Number(editQty) || 1);
     const numericPrice = Math.max(0, Number(editUnitPrice) || 0);
     const updatedTotal = computeDailyExpenseTotal(numericQty, numericPrice);
+    const normalizedEditDate = normalizeTrackerDateString(editDate.trim() || item.date);
     const updatedItem: DailyExpenseItem = {
       ...item,
-      date: editDate.trim() || item.date,
+      date: normalizedEditDate,
       description: editDescription.trim(),
       qty: numericQty,
       unitPrice: numericPrice,
@@ -201,10 +254,10 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
     onTriggerPopup?.(
       'REVISED',
       'SIMPAN REVISI',
-      'Revisi Transaksi Berhasil Disimpan',
+      'Revisi Transaksi Berhasil Disimpan & Diurutkan',
       `Data "${updatedItem.description}" (${updatedItem.date}) berhasil direvisi menjadi ${numericQty}x ${formatIDR(
         numericPrice
-      )} = ${formatIDR(updatedTotal)} (${editMethod}).`
+      )} = ${formatIDR(updatedTotal)} (${editMethod}) dan tersusun rapi sesuai tanggal.`
     );
   };
 
@@ -220,8 +273,9 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
       return;
     }
     const numericAmount = Number(hangoutAmount) || 0;
+    const normalizedHDate = normalizeTrackerDateString(hangoutDate.trim() || '26/10/26');
     onAddHangoutExpense({
-      date: hangoutDate.trim() || '26/10/26',
+      date: normalizedHDate,
       placeOrEvent: placeOrEvent.trim(),
       amount: numericAmount,
       paymentMethod: hangoutMethod,
@@ -231,7 +285,7 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
       'SUCCESS',
       'SIMPAN JAJAN',
       'Catatan Jajan & Nongkrong Disimpan',
-      `Kegiatan "${placeOrEvent.trim()}" sebesar ${formatIDR(
+      `Kegiatan "${placeOrEvent.trim()}" pada ${normalizedHDate} sebesar ${formatIDR(
         numericAmount
       )} (${hangoutMethod}) berhasil ditambahkan ke database.`
     );
@@ -273,7 +327,7 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
     }
     const updated: HangoutExpenseItem = {
       ...he,
-      date: editHangoutDate.trim() || he.date,
+      date: normalizeTrackerDateString(editHangoutDate.trim() || he.date),
       placeOrEvent: editHangoutPlace.trim(),
       amount: Math.max(0, Number(editHangoutAmount) || 0),
       paymentMethod: editHangoutMethod,
@@ -292,17 +346,30 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
     );
   };
 
-  const filteredDaily = period.dailyExpenses.filter((item) => {
+  // First sort all period dailyExpenses chronologically so any date appears in exact chronological sequence
+  const chronologicallySortedDaily = sortDailyExpensesChronologically(
+    period.dailyExpenses,
+    sortDirection
+  );
+
+  // Unique dates in chronological order for the Date Filter bar
+  const uniqueChronologicalDates = Array.from(
+    new Set(sortDailyExpensesChronologically(period.dailyExpenses, 'ASC').map((d) => d.date))
+  );
+
+  const filteredDaily = chronologicallySortedDaily.filter((item) => {
     const matchesSearch =
       !searchQuery.trim() ||
       item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.date.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesMethod = methodFilter === 'ALL' || item.paymentMethod === methodFilter;
     const matchesTag = tagFilter === 'ALL' || item.groupTag === tagFilter;
-    return matchesSearch && matchesMethod && matchesTag;
+    const matchesDate = dateFilter === 'ALL' || item.date === dateFilter;
+    return matchesSearch && matchesMethod && matchesTag && matchesDate;
   });
 
   const filteredDailyTotal = filteredDaily.reduce((acc, i) => acc + i.total, 0);
+  const sortedHangoutList = sortHangoutExpensesChronologically(period.hangoutExpenses, 'ASC');
 
   return (
     <div className="space-y-6">
@@ -344,7 +411,7 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
         </div>
 
         <div className="rounded-3xl liquid-glass-interactive p-4">
-          <span className="text-xs text-slate-300">Jajan & Nongkrong ({summary.hangoutTrackerCount}x)</span>
+          <span className="text-xs text-slate-300">Jajan &amp; Nongkrong ({summary.hangoutTrackerCount}x)</span>
           <p
             data-testid="tracker-hangout-total"
             className="mt-1.5 text-xl font-bold font-mono tabular-nums text-rose-400"
@@ -365,17 +432,81 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                 Tracker Pengeluaran Sehari-hari dalam 1 Bulan ({period.monthLabel})
               </h2>
               <p className="text-xs text-slate-300">
-                Kalkulasi otomatis Qty × Harga Satuan · Bisa tambah, revisi/edit, simpan & hapus otomatis ke database
+                Otomatis berurutan rapi berdasarkan Tanggal/Bulan/Tahun · Input baru otomatis tampil tepat setelah tanggal yang sama atau sebelumnya
               </p>
             </div>
           </div>
+          <span className="px-3 py-1 rounded-xl liquid-glass-inset border border-emerald-400/30 text-[11px] font-mono text-emerald-300">
+            Auto-Sort Kronologis Aktif · {filteredDaily.length}/{period.dailyExpenses.length} Baris
+          </span>
         </div>
 
-        {/* Form Input Pengeluaran Sehari-hari */}
+        {/* Form Input Pengeluaran Sehari-hari (Dengan Pemilih Tanggal - Bulan - Tahun Terintegrasi) */}
         <form
           onSubmit={handleSubmitDaily}
           className="mt-4 p-4 rounded-2xl liquid-glass-inset space-y-3"
         >
+          {/* Row 1: Penyesuaian Tanggal - Bulan - Tahun + Format Cepat */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-2.5 border-b border-slate-800/80 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-slate-300 font-semibold">
+                Sesuaikan Tanggal · Bulan · Tahun:
+              </span>
+              <div className="inline-flex items-center gap-1.5 bg-slate-950/90 border border-white/10 rounded-xl px-2.5 py-1">
+                <label htmlFor="daily-day-select" className="text-[10px] text-slate-400 font-mono">
+                  Tgl
+                </label>
+                <select
+                  id="daily-day-select"
+                  value={dayPart}
+                  onChange={(e) => handleDatePartsChange(e.target.value, monthPart, yearPart)}
+                  className="bg-slate-900 border border-slate-700 rounded-lg px-1.5 py-0.5 text-xs font-mono text-emerald-300 cursor-pointer"
+                >
+                  {Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')).map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+
+                <label htmlFor="daily-month-select" className="text-[10px] text-slate-400 font-mono ml-1">
+                  Bln
+                </label>
+                <select
+                  id="daily-month-select"
+                  value={monthPart}
+                  onChange={(e) => handleDatePartsChange(dayPart, e.target.value, yearPart)}
+                  className="bg-slate-900 border border-slate-700 rounded-lg px-1.5 py-0.5 text-xs font-mono text-cyan-300 cursor-pointer"
+                >
+                  {MONTH_OPTIONS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+
+                <label htmlFor="daily-year-select" className="text-[10px] text-slate-400 font-mono ml-1">
+                  Thn
+                </label>
+                <select
+                  id="daily-year-select"
+                  value={yearPart}
+                  onChange={(e) => handleDatePartsChange(dayPart, monthPart, e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded-lg px-1.5 py-0.5 text-xs font-mono text-amber-300 cursor-pointer"
+                >
+                  {['2025', '2026', '2027', '2028', '2029', '2030'].map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <span className="text-[11px] font-mono text-slate-400">
+                &rarr; Akan disisipkan rapi pada urutan tanggal <strong className="text-emerald-400">{date}</strong>
+              </span>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
             <div className="sm:col-span-2">
               <label htmlFor="daily-date-input" className="block text-xs text-slate-400 mb-1">
@@ -385,9 +516,9 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                 id="daily-date-input"
                 type="text"
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
+                onChange={(e) => handleManualDateInput(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-100"
-                placeholder="26/10/26"
+                placeholder="25/10/26"
               />
             </div>
 
@@ -558,52 +689,126 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
           {formError && <p className="text-xs text-rose-400 font-medium">{formError}</p>}
         </form>
 
-        {/* Filter & Search Bar */}
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="relative flex-1 min-w-[220px]">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              aria-label="Cari transaksi harian"
-              placeholder="Cari nama transaksi atau tanggal..."
-              className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-100"
-            />
-          </div>
+        {/* UPGRADED 3D LIQUID GLASS FILTER & CHRONOLOGICAL DATE BAR */}
+        <div
+          data-testid="daily-tracker-filter-bar"
+          className="mt-5 p-4 rounded-2xl liquid-glass-inset border border-white/10 space-y-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label="Cari transaksi harian"
+                placeholder="Cari keterangan pengeluaran atau tanggal (DD/MM/YY)..."
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:border-emerald-400/60 focus:outline-none text-xs text-slate-100"
+              />
+            </div>
 
-          <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800 overflow-x-auto">
-            {(['ALL', 'OPERASIONAL', 'AIRA_SAVING'] as const).map((t) => (
+            {/* Chronological Order Selector */}
+            <div className="flex items-center gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800">
               <button
-                key={t}
                 type="button"
-                onClick={() => setTagFilter(t)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer ${
-                  tagFilter === t
-                    ? 'bg-slate-800 text-slate-100'
+                onClick={() => setSortDirection('ASC')}
+                data-testid="sort-chronological-asc"
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition-all ${
+                  sortDirection === 'ASC'
+                    ? 'bg-emerald-500 text-slate-950 font-semibold shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {t === 'ALL' ? 'Semua Pos' : t === 'OPERASIONAL' ? 'Belanja & Ops' : 'Jajan Aira'}
+                Urut Tanggal Rapi (Awal &rarr; Akhir)
               </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800 overflow-x-auto">
-            {['ALL', ...PAYMENT_METHODS].map((m) => (
               <button
-                key={m}
                 type="button"
-                onClick={() => setMethodFilter(m)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium whitespace-nowrap shrink-0 cursor-pointer ${
-                  methodFilter === m
-                    ? 'bg-emerald-500 text-slate-950 font-semibold'
+                onClick={() => setSortDirection('DESC')}
+                data-testid="sort-chronological-desc"
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap cursor-pointer transition-all ${
+                  sortDirection === 'DESC'
+                    ? 'bg-emerald-500 text-slate-950 font-semibold shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {m === 'ALL' ? 'Semua Metode' : m}
+                Tanggal Terbaru &rarr; Terlama
               </button>
-            ))}
+            </div>
+
+            {/* Pos Filter */}
+            <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800 overflow-x-auto">
+              {(['ALL', 'OPERASIONAL', 'AIRA_SAVING'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTagFilter(t)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer ${
+                    tagFilter === t
+                      ? 'bg-slate-800 text-emerald-300 border border-emerald-500/30 font-semibold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {t === 'ALL' ? 'Semua Pos' : t === 'OPERASIONAL' ? 'Belanja & Ops' : 'Jajan Aira'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Row 2 of Filter Bar: Metode / Kanal Filter + Filter Tanggal Berurutan */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/10">
+            <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800 overflow-x-auto">
+              {['ALL', ...PAYMENT_METHODS].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMethodFilter(m)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium whitespace-nowrap shrink-0 cursor-pointer ${
+                    methodFilter === m
+                      ? 'bg-emerald-500 text-slate-950 font-semibold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {m === 'ALL' ? 'Semua Metode' : m}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="tracker-date-filter-select" className="text-xs text-slate-300 font-medium">
+                Filter Tanggal Berurutan:
+              </label>
+              <select
+                id="tracker-date-filter-select"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-cyan-300 cursor-pointer"
+              >
+                <option value="ALL">Semua Tanggal ({uniqueChronologicalDates.length} Tgl)</option>
+                {uniqueChronologicalDates.map((dStr) => {
+                  const countOnDate = period.dailyExpenses.filter((x) => x.date === dStr).length;
+                  return (
+                    <option key={dStr} value={dStr}>
+                      {dStr} ({countOnDate} transaksi)
+                    </option>
+                  );
+                })}
+              </select>
+
+              {(searchQuery || methodFilter !== 'ALL' || tagFilter !== 'ALL' || dateFilter !== 'ALL') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setMethodFilter('ALL');
+                    setTagFilter('ALL');
+                    setDateFilter('ALL');
+                  }}
+                  className="px-2.5 py-1 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-rose-300 text-xs font-medium cursor-pointer"
+                >
+                  Reset Filter
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -885,7 +1090,7 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-xs">
-              {period.hangoutExpenses.map((he) => {
+              {sortedHangoutList.map((he) => {
                 const isEditing = editingHangoutId === he.id;
                 return (
                   <tr key={he.id} className="hover:bg-slate-800/30">

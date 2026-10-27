@@ -43,6 +43,9 @@ import {
   createSyncQueueItem,
   exportPeriodToCSV,
   formatIDR,
+  getLatestPeriodsTimestamp,
+  sortDailyExpensesChronologically,
+  sortHangoutExpensesChronologically,
 } from './utils/calculations';
 import {
   DEFAULT_GOOGLE_DRIVE_DB_URL,
@@ -312,25 +315,64 @@ export default function App() {
   });
   const [isOtpPortalModalOpen, setIsOtpPortalModalOpen] = useState<boolean>(false);
 
-  // 1. Offline-First Local Database State (Periods)
+  // 1. Offline-First Local Database State (Periods) with Cross-Version Migration & Chronological Normalization
+  const normalizePeriodsList = useCallback((rawList: MonthlyPeriodData[]): MonthlyPeriodData[] => {
+    return rawList.map((p: MonthlyPeriodData) => ({
+      ...p,
+      dailyExpenses: sortDailyExpensesChronologically(p.dailyExpenses || [], 'ASC'),
+      hangoutExpenses: sortHangoutExpensesChronologically(p.hangoutExpenses || [], 'ASC'),
+      specialLiabilities: (p.specialLiabilities || []).filter(
+        (l) => l.id !== 'liab-3' && !l.title.toLowerCase().includes('pak syamsul')
+      ),
+    }));
+  }, []);
+
   const [periods, setPeriods] = useState<MonthlyPeriodData[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.PERIODS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((p: MonthlyPeriodData) => ({
-            ...p,
-            specialLiabilities: (p.specialLiabilities || []).filter(
-              (l) => l.id !== 'liab-3' && !l.title.toLowerCase().includes('pak syamsul')
-            ),
-          }));
+      const candidateKeys = [
+        STORAGE_KEYS.PERIODS,
+        'aurelia_finplanner_periods_v3',
+        'aurelia_finplanner_periods_v2',
+        'aurelia_finplanner_periods_v1',
+      ];
+      let bestCandidate: MonthlyPeriodData[] | null = null;
+      let bestTimestamp = -1;
+
+      for (const key of candidateKeys) {
+        const saved = localStorage.getItem(key);
+        if (!saved) continue;
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const ts = getLatestPeriodsTimestamp(parsed);
+            if (ts > bestTimestamp) {
+              bestTimestamp = ts;
+              bestCandidate = parsed;
+            }
+          }
+        } catch {
+          // Ignore malformed candidate
         }
+      }
+
+      if (bestCandidate && bestCandidate.length > 0) {
+        return bestCandidate.map((p: MonthlyPeriodData) => ({
+          ...p,
+          dailyExpenses: sortDailyExpensesChronologically(p.dailyExpenses || [], 'ASC'),
+          hangoutExpenses: sortHangoutExpensesChronologically(p.hangoutExpenses || [], 'ASC'),
+          specialLiabilities: (p.specialLiabilities || []).filter(
+            (l) => l.id !== 'liab-3' && !l.title.toLowerCase().includes('pak syamsul')
+          ),
+        }));
       }
     } catch {
       // Fallback to initial seed data
     }
-    return INITIAL_PERIODS;
+    return INITIAL_PERIODS.map((p) => ({
+      ...p,
+      dailyExpenses: sortDailyExpensesChronologically(p.dailyExpenses || [], 'ASC'),
+      hangoutExpenses: sortHangoutExpensesChronologically(p.hangoutExpenses || [], 'ASC'),
+    }));
   });
 
   const [activePeriodId, setActivePeriodId] = useState<string>(() => {
@@ -439,38 +481,75 @@ export default function App() {
     [notificationPrefs.pushEnabled, registeredAccount?.email, showToast]
   );
 
-  // Connect to Real-Time SSE Stream (/api/events) & Hydrate Cloud Vault on startup
+  // Connect to Real-Time SSE Stream (/api/events) & Continuously Synchronize with Cloud Vault on startup
   useEffect(() => {
-    // Hydrate from Server Cloud Vault on startup if local storage was empty
-    const hasLocalPeriods = (() => {
-      try {
-        return Boolean(localStorage.getItem(STORAGE_KEYS.PERIODS));
-      } catch {
-        return false;
-      }
-    })();
+    fetch('/api/vault')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const vaultPeriods = data?.vault?.periodsSnapshot;
+        if (Array.isArray(vaultPeriods) && vaultPeriods.length > 0) {
+          setPeriods((currentLocal) => {
+            const localTs = getLatestPeriodsTimestamp(currentLocal);
+            const vaultTs = getLatestPeriodsTimestamp(vaultPeriods);
+            if (vaultTs > localTs) {
+              const normalizedVault = normalizePeriodsList(vaultPeriods);
+              try {
+                localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(normalizedVault));
+              } catch {
+                // Ignore
+              }
+              return normalizedVault;
+            } else {
+              // Local revisions are newer or equal -> immediately push to Cloud Vault so server database is 100% synced
+              const targetPeriod =
+                currentLocal.find((p) => p.periodId === activePeriodId) || currentLocal[0];
+              const targetSummary = calculatePeriodSummary(targetPeriod);
+              fetch('/api/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  apiSecretToken: syncConfig.apiSecretToken,
+                  queue: [],
+                  activePeriodSnapshot: targetPeriod,
+                  activeSummary: targetSummary,
+                  allPeriods: currentLocal,
+                  actor: registeredAccount?.email || OWNER_VERIFIED_EMAIL,
+                }),
+              }).catch(() => {});
+              return currentLocal;
+            }
+          });
+        } else {
+          // Server vault empty -> push current periods immediately
+          setPeriods((currentLocal) => {
+            const targetPeriod =
+              currentLocal.find((p) => p.periodId === activePeriodId) || currentLocal[0];
+            const targetSummary = calculatePeriodSummary(targetPeriod);
+            fetch('/api/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                apiSecretToken: syncConfig.apiSecretToken,
+                queue: [],
+                activePeriodSnapshot: targetPeriod,
+                activeSummary: targetSummary,
+                allPeriods: currentLocal,
+                actor: registeredAccount?.email || OWNER_VERIFIED_EMAIL,
+              }),
+            }).catch(() => {});
+            return currentLocal;
+          });
+        }
 
-    if (!hasLocalPeriods) {
-      fetch('/api/vault')
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (
-            data?.vault?.periodsSnapshot &&
-            Array.isArray(data.vault.periodsSnapshot) &&
-            data.vault.periodsSnapshot.length > 0
-          ) {
-            setPeriods(data.vault.periodsSnapshot);
-          }
-          if (
-            data?.vault?.usersSheet &&
-            Array.isArray(data.vault.usersSheet) &&
-            data.vault.usersSheet.length > 0
-          ) {
-            setUsersSheet(data.vault.usersSheet);
-          }
-        })
-        .catch(() => {});
-    }
+        if (
+          data?.vault?.usersSheet &&
+          Array.isArray(data.vault.usersSheet) &&
+          data.vault.usersSheet.length > 0
+        ) {
+          setUsersSheet(data.vault.usersSheet);
+        }
+      })
+      .catch(() => {});
 
     let eventSource: EventSource | null = null;
     try {
@@ -703,7 +782,7 @@ export default function App() {
     executeCloudSync,
   ]);
 
-  // Helper to update current period & enqueue a sync operation
+  // Helper to update current period & immediately auto-sync with Cloud Vault database
   const mutateActivePeriod = useCallback(
     (
       updater: (current: MonthlyPeriodData) => MonthlyPeriodData,
@@ -712,20 +791,6 @@ export default function App() {
       payload: Record<string, unknown>
     ) => {
       const nowIso = new Date().toISOString();
-      setPeriods((prevPeriods) => {
-        const updatedList = prevPeriods.map((p) =>
-          p.periodId === activePeriod.periodId ? updater(p) : p
-        );
-        for (let i = 1; i < updatedList.length; i++) {
-          const prevMonthSummary = calculatePeriodSummary(updatedList[i - 1]);
-          updatedList[i] = {
-            ...updatedList[i],
-            openingBalanceCarryOver: prevMonthSummary.closingBalance,
-          };
-        }
-        return updatedList;
-      });
-
       const queueItem = createSyncQueueItem(
         activePeriod.periodId,
         activePeriod.monthLabel,
@@ -734,7 +799,97 @@ export default function App() {
         payload,
         nowIso
       );
-      setSyncQueue((prev) => [queueItem, ...prev]);
+
+      setPeriods((prevPeriods) => {
+        const updatedList = prevPeriods.map((p) => {
+          if (p.periodId !== activePeriod.periodId) return p;
+          const nextPeriod = updater(p);
+          return {
+            ...nextPeriod,
+            lastSyncedAt: nowIso,
+          };
+        });
+        for (let i = 1; i < updatedList.length; i++) {
+          const prevMonthSummary = calculatePeriodSummary(updatedList[i - 1]);
+          updatedList[i] = {
+            ...updatedList[i],
+            openingBalanceCarryOver: prevMonthSummary.closingBalance,
+          };
+        }
+
+        try {
+          localStorage.setItem(STORAGE_KEYS.PERIODS, JSON.stringify(updatedList));
+        } catch {
+          // Ignore storage quota errors
+        }
+
+        // Immediate continuous auto-sync to Server Cloud Vault (/.data/finplanner-cloud-vault.json) & Google Sheets
+        if (isEffectiveOnline) {
+          const updatedActivePeriod =
+            updatedList.find((p) => p.periodId === activePeriod.periodId) || updatedList[0];
+          const updatedSummary = calculatePeriodSummary(updatedActivePeriod);
+          const syncedQueueItem: SyncQueueItem = {
+            ...queueItem,
+            isSynced: true,
+            syncedAt: nowIso,
+          };
+
+          fetch('/api/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              apiSecretToken: syncConfig.apiSecretToken,
+              queue: [syncedQueueItem],
+              activePeriodSnapshot: updatedActivePeriod,
+              activeSummary: updatedSummary,
+              allPeriods: updatedList,
+              usersSheet,
+              actor: registeredAccount?.email || OWNER_VERIFIED_EMAIL,
+            }),
+          })
+            .then((res) => {
+              if (res.ok) {
+                setSyncQueue((prev) =>
+                  prev.map((q) =>
+                    q.id === queueItem.id ? { ...q, isSynced: true, syncedAt: nowIso } : q
+                  )
+                );
+                setSyncConfig((prev) => ({ ...prev, lastSyncedAt: nowIso }));
+              }
+            })
+            .catch(() => {});
+
+          const targetUrl = syncConfig.appsScriptUrl.trim() || DEFAULT_GOOGLE_DRIVE_DB_URL;
+          if (
+            targetUrl.startsWith('https://script.google.com/macros/s/') &&
+            !targetUrl.includes('AutoSync_2026')
+          ) {
+            fetch(targetUrl, {
+              method: 'POST',
+              mode: 'no-cors',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({
+                apiSecretToken: syncConfig.apiSecretToken,
+                queue: [syncedQueueItem],
+                activePeriodSnapshot: updatedActivePeriod,
+                activeSummary: updatedSummary,
+                allPeriods: updatedList,
+              }),
+            }).catch(() => {});
+          }
+        }
+
+        return updatedList;
+      });
+
+      setSyncQueue((prev) => [
+        {
+          ...queueItem,
+          isSynced: isEffectiveOnline,
+          syncedAt: isEffectiveOnline ? nowIso : undefined,
+        },
+        ...prev,
+      ]);
 
       if (notificationPrefs.pushEnabled && notificationPrefs.budgetThresholdAlert) {
         const newNotif: RealtimePushNotification = {
@@ -762,6 +917,9 @@ export default function App() {
       notificationPrefs.budgetThresholdAlert,
       registeredAccount?.email,
       showToast,
+      syncConfig.apiSecretToken,
+      syncConfig.appsScriptUrl,
+      usersSheet,
     ]
   );
 
@@ -1036,7 +1194,7 @@ export default function App() {
     mutateActivePeriod(
       (curr) => ({
         ...curr,
-        dailyExpenses: [newItem, ...curr.dailyExpenses],
+        dailyExpenses: sortDailyExpensesChronologically([...curr.dailyExpenses, newItem], 'ASC'),
       }),
       'ADD_DAILY_EXPENSE',
       `Transaksi baru: ${newItem.description} (${newItem.qty}x ${formatIDR(newItem.unitPrice)} = ${formatIDR(newItem.total)}) via ${newItem.paymentMethod}`,
@@ -1048,7 +1206,10 @@ export default function App() {
     mutateActivePeriod(
       (curr) => ({
         ...curr,
-        dailyExpenses: curr.dailyExpenses.map((d) => (d.id === updated.id ? updated : d)),
+        dailyExpenses: sortDailyExpensesChronologically(
+          curr.dailyExpenses.map((d) => (d.id === updated.id ? updated : d)),
+          'ASC'
+        ),
       }),
       'UPDATE_DAILY_EXPENSE',
       `Revisi transaksi harian: ${updated.description} (${updated.qty}x ${formatIDR(updated.unitPrice)} = ${formatIDR(updated.total)}) via ${updated.paymentMethod}`,
@@ -1079,7 +1240,10 @@ export default function App() {
     mutateActivePeriod(
       (curr) => ({
         ...curr,
-        hangoutExpenses: [newItem, ...curr.hangoutExpenses],
+        hangoutExpenses: sortHangoutExpensesChronologically(
+          [...curr.hangoutExpenses, newItem],
+          'ASC'
+        ),
       }),
       'ADD_HANGOUT_EXPENSE',
       `Jajan/Nongkrong: ${newItem.placeOrEvent} (${formatIDR(newItem.amount)}) via ${newItem.paymentMethod}`,
@@ -1091,7 +1255,10 @@ export default function App() {
     mutateActivePeriod(
       (curr) => ({
         ...curr,
-        hangoutExpenses: curr.hangoutExpenses.map((h) => (h.id === updated.id ? updated : h)),
+        hangoutExpenses: sortHangoutExpensesChronologically(
+          curr.hangoutExpenses.map((h) => (h.id === updated.id ? updated : h)),
+          'ASC'
+        ),
       }),
       'UPDATE_BUDGET_ITEM',
       `Revisi Jajan/Nongkrong: ${updated.placeOrEvent} (${formatIDR(updated.amount)}) via ${updated.paymentMethod}`,
@@ -1226,76 +1393,81 @@ export default function App() {
         className="pointer-events-none fixed top-1/3 -right-28 w-96 h-96 rounded-full bg-sky-500/10 blur-3xl ambient-orb no-print"
       />
 
-      {/* STRICT 3-ZONE TOP BAR CONTRACT */}
-      <header className="sticky top-0 z-30 liquid-glass border-x-0 border-t-0 px-4 sm:px-8 py-3.5 flex items-center justify-between gap-8 no-print">
-        {/* Zone 1: Single text element wordmark */}
-        <a
-          href="#top"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveTab('dashboard');
-          }}
-          className="text-base sm:text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0"
-        >
-          {t.brandTitle}
-        </a>
-
-        {/* Zone 2: 5 concise single-line text navigation links */}
-        <nav aria-label="Navigasi Utama" className="hidden md:flex items-center gap-6 text-sm font-medium">
+      {/* STRICT 3-ZONE TOP BAR CONTRACT WITH THICK 3D LIQUID GLASS NAVIGATION */}
+      <header className="sticky top-0 z-30 liquid-glass border-x-0 border-t-0 px-4 sm:px-8 py-3 flex items-center justify-between gap-4 lg:gap-6 no-print">
+        {/* Zone 1: Brand wordmark with direct link on mrofiqi.id */}
+        <div className="text-base sm:text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0 flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => setActiveTab('dashboard')}
-            className={`transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'dashboard'
-                ? 'text-emerald-400 underline underline-offset-8 decoration-2 font-semibold'
-                : 'text-slate-300 hover:text-white'
+            className="hover:text-emerald-300 transition-colors cursor-pointer"
+          >
+            FinPay Pro by
+          </button>
+          <a
+            href="https://www.mrofiqi.id/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-emerald-400 hover:text-emerald-300 underline decoration-emerald-400/60 underline-offset-4 font-extrabold transition-colors"
+          >
+            mrofiqi.id
+          </a>
+        </div>
+
+        {/* Zone 2: 5 Thick, Elegant 3D Liquid Glass Navigation Tabs */}
+        <nav
+          aria-label="Navigasi Utama"
+          className="hidden md:flex items-center gap-2 p-1.5 rounded-2xl liquid-3d-nav-dock overflow-x-auto"
+        >
+          <button
+            type="button"
+            onClick={() => setActiveTab('dashboard')}
+            className={`liquid-3d-tab px-3.5 py-2 text-xs whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-2 ${
+              activeTab === 'dashboard' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
             }`}
           >
-            {t.navDashboard}
+            <LayoutDashboard className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>{t.navDashboard}</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('budget')}
-            className={`transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'budget'
-                ? 'text-emerald-400 underline underline-offset-8 decoration-2 font-semibold'
-                : 'text-slate-300 hover:text-white'
+            className={`liquid-3d-tab px-3.5 py-2 text-xs whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-2 ${
+              activeTab === 'budget' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
             }`}
           >
-            {t.navBudget}
+            <PieChart className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+            <span>{t.navBudget}</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('tracker')}
-            className={`transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'tracker'
-                ? 'text-emerald-400 underline underline-offset-8 decoration-2 font-semibold'
-                : 'text-slate-300 hover:text-white'
+            className={`liquid-3d-tab px-3.5 py-2 text-xs whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-2 ${
+              activeTab === 'tracker' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
             }`}
           >
-            {t.navTracker}
+            <ListChecks className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>{t.navTracker}</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('accounts')}
-            className={`transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'accounts'
-                ? 'text-emerald-400 underline underline-offset-8 decoration-2 font-semibold'
-                : 'text-slate-300 hover:text-white'
+            className={`liquid-3d-tab px-3.5 py-2 text-xs whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-2 ${
+              activeTab === 'accounts' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
             }`}
           >
-            {t.navAccounts}
+            <CreditCard className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <span>{t.navAccounts}</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('admin')}
-            className={`transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'admin'
-                ? 'text-emerald-400 underline underline-offset-8 decoration-2 font-semibold'
-                : 'text-slate-300 hover:text-white'
+            className={`liquid-3d-tab px-3.5 py-2 text-xs whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-2 ${
+              activeTab === 'admin' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
             }`}
           >
-            {t.navAdminHub}
+            <Activity className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+            <span>{t.navAdminHub}</span>
           </button>
         </nav>
 
@@ -1305,7 +1477,7 @@ export default function App() {
             type="button"
             onClick={executeCloudSync}
             disabled={isSyncing || !isEffectiveOnline}
-            className="px-4 py-2 text-xs font-semibold text-slate-950 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-400 rounded-2xl liquid-btn whitespace-nowrap shrink-0 cursor-pointer"
+            className="px-4 py-2.5 text-xs font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-400 rounded-2xl liquid-btn whitespace-nowrap shrink-0 cursor-pointer shadow-lg"
           >
             {isSyncing ? t.syncing : t.syncNow}
           </button>
@@ -1513,21 +1685,31 @@ export default function App() {
                 <span>Analitik Admin, 2FA & Dokumentasi</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('accounts');
-                  setTimeout(() => {
-                    document
-                      .getElementById('android-hosting-center')
-                      ?.scrollIntoView({ behavior: 'smooth' });
-                  }, 100);
-                }}
-                className="px-3.5 py-2 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-medium flex items-center gap-1.5 liquid-btn whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>.APK / .AAB & Hosting mrofiqi.id</span>
-              </button>
+              <div className="px-3.5 py-2 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-medium flex items-center gap-1.5 liquid-btn whitespace-nowrap shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('accounts');
+                    setTimeout(() => {
+                      document
+                        .getElementById('android-hosting-center')
+                        ?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }}
+                  className="flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>.APK / .AAB & Hosting</span>
+                </button>
+                <a
+                  href="https://www.mrofiqi.id/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-emerald-400 hover:text-emerald-200 underline decoration-emerald-400/60 underline-offset-2 font-bold"
+                >
+                  mrofiqi.id
+                </a>
+              </div>
             </div>
           </div>
         </div>
@@ -1701,64 +1883,64 @@ export default function App() {
         )}
       </main>
 
-      {/* ANDROID LUXURY LIQUID GLASS BOTTOM NAVIGATION BAR (Mobile Viewport) */}
+      {/* ANDROID LUXURY 3D LIQUID GLASS BOTTOM NAVIGATION BAR (Mobile Viewport) */}
       <nav
         aria-label="Navigasi Bawah Android"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 liquid-glass border-x-0 border-b-0 grid grid-cols-5 items-center h-16 px-1 no-print"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 liquid-3d-nav-dock border-x-0 border-b-0 grid grid-cols-5 items-center gap-1 h-16 px-2 py-1.5 no-print"
       >
         <button
           type="button"
           onClick={() => setActiveTab('dashboard')}
-          className={`flex flex-col items-center justify-center min-h-[44px] cursor-pointer ${
-            activeTab === 'dashboard' ? 'text-emerald-400' : 'text-slate-400'
+          className={`liquid-3d-tab flex flex-col items-center justify-center min-h-[46px] cursor-pointer ${
+            activeTab === 'dashboard' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
           }`}
         >
-          <LayoutDashboard className="w-5 h-5" />
-          <span className="text-[10px] font-medium mt-1">Dashboard</span>
+          <LayoutDashboard className="w-4 h-4 text-emerald-400" />
+          <span className="text-[10px] font-semibold mt-0.5">Dashboard</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('budget')}
-          className={`flex flex-col items-center justify-center min-h-[44px] cursor-pointer ${
-            activeTab === 'budget' ? 'text-emerald-400' : 'text-slate-400'
+          className={`liquid-3d-tab flex flex-col items-center justify-center min-h-[46px] cursor-pointer ${
+            activeTab === 'budget' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
           }`}
         >
-          <PieChart className="w-5 h-5" />
-          <span className="text-[10px] font-medium mt-1">Anggaran</span>
+          <PieChart className="w-4 h-4 text-sky-400" />
+          <span className="text-[10px] font-semibold mt-0.5">Anggaran</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('tracker')}
-          className={`flex flex-col items-center justify-center min-h-[44px] cursor-pointer ${
-            activeTab === 'tracker' ? 'text-emerald-400' : 'text-slate-400'
+          className={`liquid-3d-tab flex flex-col items-center justify-center min-h-[46px] cursor-pointer ${
+            activeTab === 'tracker' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
           }`}
         >
-          <ListChecks className="w-5 h-5" />
-          <span className="text-[10px] font-medium mt-1">Tracker</span>
+          <ListChecks className="w-4 h-4 text-amber-400" />
+          <span className="text-[10px] font-semibold mt-0.5">Tracker</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('accounts')}
-          className={`flex flex-col items-center justify-center min-h-[44px] cursor-pointer ${
-            activeTab === 'accounts' ? 'text-emerald-400' : 'text-slate-400'
+          className={`liquid-3d-tab flex flex-col items-center justify-center min-h-[46px] cursor-pointer ${
+            activeTab === 'accounts' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
           }`}
         >
-          <CreditCard className="w-5 h-5" />
-          <span className="text-[10px] font-medium mt-1">Rekening</span>
+          <CreditCard className="w-4 h-4 text-purple-400" />
+          <span className="text-[10px] font-semibold mt-0.5">Rekening</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('admin')}
-          className={`flex flex-col items-center justify-center min-h-[44px] cursor-pointer ${
-            activeTab === 'admin' ? 'text-emerald-400' : 'text-slate-400'
+          className={`liquid-3d-tab flex flex-col items-center justify-center min-h-[46px] cursor-pointer ${
+            activeTab === 'admin' ? 'liquid-3d-tab-active' : 'liquid-3d-tab-idle'
           }`}
         >
-          <Activity className="w-5 h-5" />
-          <span className="text-[10px] font-medium mt-1">Admin & 2FA</span>
+          <Activity className="w-4 h-4 text-emerald-300" />
+          <span className="text-[10px] font-semibold mt-0.5">Admin & 2FA</span>
         </button>
       </nav>
 

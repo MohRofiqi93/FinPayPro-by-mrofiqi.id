@@ -9,7 +9,11 @@ import {
   Wallet,
 } from 'lucide-react';
 import { MonthlyPeriodData, PeriodFinancialSummary } from '../types/finance';
-import { formatCompactIDR, formatIDR } from '../utils/calculations';
+import {
+  formatCompactIDR,
+  formatIDR,
+  sortDailyExpensesChronologically,
+} from '../utils/calculations';
 
 interface DashboardViewProps {
   period: MonthlyPeriodData;
@@ -173,9 +177,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       ? donutSegments[activeDonutIndex]
       : null;
 
-  // 3. Group daily expenses by date for the Animated Daily Trend Chart
+  // 3. Group daily expenses by date (in chronological order) for the Animated Daily Trend Chart
   const dateGroupMap = new Map<string, number>();
-  period.dailyExpenses.forEach((item) => {
+  sortDailyExpensesChronologically(period.dailyExpenses, 'ASC').forEach((item) => {
     const prev = dateGroupMap.get(item.date) || 0;
     dateGroupMap.set(item.date, prev + item.total);
   });

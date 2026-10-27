@@ -415,6 +415,39 @@
       ],
       "dailyExpenses": [
         {
+          "id": "2026-10-de8",
+          "date": "27/09/26",
+          "description": "Orang Tua",
+          "qty": 2,
+          "unitPrice": 100000,
+          "total": 200000,
+          "paymentMethod": "BRI",
+          "groupTag": "OPERASIONAL",
+          "updatedAt": "2026-10-22T12:00:00.000Z"
+        },
+        {
+          "id": "2026-10-de9",
+          "date": "27/09/26",
+          "description": "Kamar Mandi & Dapur",
+          "qty": 2,
+          "unitPrice": 350000,
+          "total": 700000,
+          "paymentMethod": "BRI",
+          "groupTag": "OPERASIONAL",
+          "updatedAt": "2026-10-22T12:00:00.000Z"
+        },
+        {
+          "id": "2026-10-de10",
+          "date": "27/09/26",
+          "description": "SPP + Jajan Dek Aira Sekolah (Rekap Pos SPP)",
+          "qty": 1,
+          "unitPrice": 0,
+          "total": 0,
+          "paymentMethod": "BSI",
+          "groupTag": "OPERASIONAL",
+          "updatedAt": "2026-10-22T12:00:00.000Z"
+        },
+        {
           "id": "2026-10-de1",
           "date": "23/10/26",
           "description": "Oprasional Rumah + Digital",
@@ -488,39 +521,6 @@
           "unitPrice": 125000,
           "total": 250000,
           "paymentMethod": "BRI",
-          "groupTag": "OPERASIONAL",
-          "updatedAt": "2026-10-22T12:00:00.000Z"
-        },
-        {
-          "id": "2026-10-de8",
-          "date": "27/09/26",
-          "description": "Orang Tua",
-          "qty": 2,
-          "unitPrice": 100000,
-          "total": 200000,
-          "paymentMethod": "BRI",
-          "groupTag": "OPERASIONAL",
-          "updatedAt": "2026-10-22T12:00:00.000Z"
-        },
-        {
-          "id": "2026-10-de9",
-          "date": "27/09/26",
-          "description": "Kamar Mandi & Dapur",
-          "qty": 2,
-          "unitPrice": 350000,
-          "total": 700000,
-          "paymentMethod": "BRI",
-          "groupTag": "OPERASIONAL",
-          "updatedAt": "2026-10-22T12:00:00.000Z"
-        },
-        {
-          "id": "2026-10-de10",
-          "date": "27/09/26",
-          "description": "SPP + Jajan Dek Aira Sekolah (Rekap Pos SPP)",
-          "qty": 1,
-          "unitPrice": 0,
-          "total": 0,
-          "paymentMethod": "BSI",
           "groupTag": "OPERASIONAL",
           "updatedAt": "2026-10-22T12:00:00.000Z"
         },
@@ -1456,6 +1456,6 @@
     "googleSheetsSyncEnabled": true,
     "webhookEndpoint": "https://script.google.com/macros/s/AKfycbx35CjwgE-QxRSVK8AJ5_4H-PbjRu9FKevXysLPg-BlSDg_A8ZfJgSw1eyMJevL4gzF1A/exec"
   },
-  "lastUpdatedAt": "2026-10-24T14:42:37.242Z",
+  "lastUpdatedAt": "2026-10-27T01:59:17.586Z",
   "schemaVersion": "v4"
 }

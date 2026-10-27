@@ -280,3 +280,49 @@ test('Marking a Fixed Cost item as Lunas (isPaid: true) reduces TOTAL PENGELUARA
   );
 });
 
+test('Chronological sorting places new Daily Expenses right after existing same-date items or in ascending date order', async () => {
+  const {
+    parseTrackerDateToSortKey,
+    normalizeTrackerDateString,
+    sortDailyExpensesChronologically,
+  } = await import('./calculations');
+
+  assert.equal(parseTrackerDateToSortKey('27/09/26'), 20260927);
+  assert.equal(parseTrackerDateToSortKey('23/10/26'), 20261023);
+  assert.equal(parseTrackerDateToSortKey('02/11/26'), 20261102);
+  assert.equal(normalizeTrackerDateString('', 5, 10, 2026), '05/10/26');
+  assert.equal(normalizeTrackerDateString('2026-10-25'), '25/10/26');
+
+  // Verify initial OCTOBER_2026_DATA is chronologically ordered
+  const keys = OCTOBER_2026_DATA.dailyExpenses.map((d) => parseTrackerDateToSortKey(d.date));
+  for (let i = 1; i < keys.length; i++) {
+    assert.ok(
+      keys[i] >= keys[i - 1],
+      `Expected item ${i} (${OCTOBER_2026_DATA.dailyExpenses[i].date}) >= item ${i - 1} (${OCTOBER_2026_DATA.dailyExpenses[i - 1].date})`
+    );
+  }
+
+  // Insert a new item with date 25/10/26 -> should appear right after the last existing 25/10/26 item and before 26/10/26
+  const newItemSameDate = {
+    id: 'test-new-25-oct',
+    date: normalizeTrackerDateString('', 25, 10, 2026),
+    description: 'Belanja Tambahan Tanggal 25',
+    qty: 1,
+    unitPrice: 50_000,
+    total: 50_000,
+    paymentMethod: 'BRI' as const,
+    groupTag: 'OPERASIONAL' as const,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const sortedWithNew = sortDailyExpensesChronologically([
+    ...OCTOBER_2026_DATA.dailyExpenses,
+    newItemSameDate,
+  ]);
+  const newIdx = sortedWithNew.findIndex((d) => d.id === 'test-new-25-oct');
+  assert.ok(newIdx > 0);
+  assert.equal(sortedWithNew[newIdx - 1].date, '25/10/26', 'Preceding item must be the last 25/10/26 item');
+  assert.equal(sortedWithNew[newIdx + 1].date, '26/10/26', 'Following item must be 26/10/26');
+});
+
+
