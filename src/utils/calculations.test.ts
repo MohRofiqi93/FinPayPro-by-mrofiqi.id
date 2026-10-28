@@ -325,4 +325,58 @@ test('Chronological sorting places new Daily Expenses right after existing same-
   assert.equal(sortedWithNew[newIdx + 1].date, '26/10/26', 'Following item must be 26/10/26');
 });
 
+test('Payment Category Audit (Tunai, Bank, E-Wallet) and per-channel Fixed Cost dynamic totals (GOPAY, DANA, etc.)', async () => {
+  const {
+    getPaymentCategory,
+    computeDailyPaymentCategoryAudit,
+    computeFilteredFixedCostSummary,
+  } = await import('./calculations');
 
+  // 1. Verify payment method classification
+  assert.equal(getPaymentCategory('COD'), 'TUNAI');
+  assert.equal(getPaymentCategory('TUNAI'), 'TUNAI');
+  assert.equal(getPaymentCategory('BRI'), 'BANK');
+  assert.equal(getPaymentCategory('BCA'), 'BANK');
+  assert.equal(getPaymentCategory('BSI'), 'BANK');
+  assert.equal(getPaymentCategory('TF'), 'BANK');
+  assert.equal(getPaymentCategory('GOPAY'), 'EWALLET');
+  assert.equal(getPaymentCategory('DANA'), 'EWALLET');
+  assert.equal(getPaymentCategory('QRIS'), 'EWALLET');
+
+  // 2. Verify daily expense category audit totals sum up to grand total
+  const audit = computeDailyPaymentCategoryAudit(OCTOBER_2026_DATA.dailyExpenses);
+  assert.equal(audit.ALL.total, 5_250_000);
+  assert.equal(audit.TUNAI.total, 470_000, 'TUNAI (COD) should equal Rp 470.000');
+  assert.equal(
+    audit.TUNAI.total + audit.BANK.total + audit.EWALLET.total,
+    audit.ALL.total,
+    'Sum of TUNAI + BANK + EWALLET must equal ALL total'
+  );
+  assert.equal(
+    audit.TUNAI.count + audit.BANK.count + audit.EWALLET.count,
+    audit.ALL.count,
+    'Sum of TUNAI + BANK + EWALLET counts must equal ALL count'
+  );
+
+  // 3. Verify Fixed Cost dynamic totals per clicked channel (ALL vs GOPAY vs DANA vs Optional)
+  const allFixed = computeFilteredFixedCostSummary(OCTOBER_2026_DATA.fixedCosts, 'ALL', 'ALL', '');
+  assert.equal(allFixed.unpaidCount, 5, 'ALL unpaid Fixed Cost count should be 5 Pos');
+  assert.equal(allFixed.activePlannedTotal, 1_010_000, 'ALL unpaid Rencana should be Rp 1.010.000');
+  assert.equal(allFixed.activeActualTotal, 1_122_000, 'ALL unpaid Aktual should be Rp 1.122.000');
+
+  const gopayFixed = computeFilteredFixedCostSummary(OCTOBER_2026_DATA.fixedCosts, 'GOPAY', 'ALL', '');
+  assert.equal(gopayFixed.unpaidCount, 3, 'GOPAY unpaid Fixed Cost count should be 3 Pos');
+  assert.equal(gopayFixed.activePlannedTotal, 940_000, 'GOPAY unpaid Rencana should be Rp 940.000');
+  assert.equal(gopayFixed.activeActualTotal, 1_047_000, 'GOPAY unpaid Aktual should be Rp 1.047.000');
+
+  const danaFixed = computeFilteredFixedCostSummary(OCTOBER_2026_DATA.fixedCosts, 'DANA', 'ALL', '');
+  assert.equal(danaFixed.unpaidCount, 2, 'DANA unpaid Fixed Cost count should be 2 Pos');
+  assert.equal(danaFixed.activePlannedTotal, 70_000, 'DANA unpaid Rencana should be Rp 70.000');
+  assert.equal(danaFixed.activeActualTotal, 75_000, 'DANA unpaid Aktual should be Rp 75.000');
+
+  const optionalFixed = computeFilteredFixedCostSummary(OCTOBER_2026_DATA.fixedCosts, 'Optional', 'ALL', '');
+  assert.equal(optionalFixed.unpaidCount, 0, 'Optional unpaid Fixed Cost count should be 0 Pos');
+  assert.equal(optionalFixed.paidCount, 2, 'Optional paid Fixed Cost count should be 2 Pos');
+  assert.equal(optionalFixed.activePlannedTotal, 0);
+  assert.equal(optionalFixed.activeActualTotal, 0);
+});

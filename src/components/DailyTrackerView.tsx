@@ -23,14 +23,18 @@ import {
 } from '../types/finance';
 import {
   computeDailyExpenseTotal,
+  computeDailyPaymentCategoryAudit,
   formatCompactIDR,
   formatIDR,
+  getPaymentCategory,
   normalizeTrackerDateString,
+  PaymentCategoryType,
   sortDailyExpensesChronologically,
   sortHangoutExpensesChronologically,
 } from '../utils/calculations';
 import { TrackerExportFormat, triggerTrackerExportDownload } from '../utils/exportFormats';
 import { ActionPopupData } from './Modals';
+import { Payment3DIcon } from './Payment3DIcon';
 
 interface DailyTrackerViewProps {
   period: MonthlyPeriodData;
@@ -104,6 +108,7 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
 
   // Filter & Chronological Sort State
   const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<'ALL' | PaymentCategoryType>('ALL');
   const [methodFilter, setMethodFilter] = useState<string>('ALL');
   const [tagFilter, setTagFilter] = useState<'ALL' | 'OPERASIONAL' | 'AIRA_SAVING'>('ALL');
   const [dateFilter, setDateFilter] = useState<string>('ALL');
@@ -357,15 +362,19 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
     new Set(sortDailyExpensesChronologically(period.dailyExpenses, 'ASC').map((d) => d.date))
   );
 
+  const paymentCategoryAudit = computeDailyPaymentCategoryAudit(period.dailyExpenses);
+
   const filteredDaily = chronologicallySortedDaily.filter((item) => {
     const matchesSearch =
       !searchQuery.trim() ||
       item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.date.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory =
+      categoryFilter === 'ALL' || getPaymentCategory(item.paymentMethod) === categoryFilter;
     const matchesMethod = methodFilter === 'ALL' || item.paymentMethod === methodFilter;
     const matchesTag = tagFilter === 'ALL' || item.groupTag === tagFilter;
     const matchesDate = dateFilter === 'ALL' || item.date === dateFilter;
-    return matchesSearch && matchesMethod && matchesTag && matchesDate;
+    return matchesSearch && matchesCategory && matchesMethod && matchesTag && matchesDate;
   });
 
   const filteredDailyTotal = filteredDaily.reduce((acc, i) => acc + i.total, 0);
@@ -692,8 +701,83 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
         {/* UPGRADED 3D LIQUID GLASS FILTER & CHRONOLOGICAL DATE BAR */}
         <div
           data-testid="daily-tracker-filter-bar"
-          className="mt-5 p-4 rounded-2xl liquid-glass-inset border border-white/10 space-y-3"
+          className="mt-5 p-4 rounded-2xl liquid-glass-inset border border-white/10 space-y-3.5"
         >
+          {/* AUDIT KATEGORI PEMBAYARAN: SEMUA, TUNAI, BANK, E-WALLET */}
+          <div
+            data-testid="daily-payment-category-audit-bar"
+            className="pb-3 border-b border-white/10 space-y-2.5"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-white inline-flex items-center gap-1.5">
+                <Payment3DIcon kind={categoryFilter} size="sm" />
+                <span>Filter Audit Kategori Pembayaran (Tunai · Bank · E-Wallet):</span>
+              </span>
+              <span className="text-[11px] font-mono text-cyan-300">
+                Menampilkan {filteredDaily.length} Transaksi · Subtotal:{' '}
+                <strong className="text-emerald-400">{formatIDR(filteredDailyTotal)}</strong>
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              {(
+                [
+                  paymentCategoryAudit.ALL,
+                  paymentCategoryAudit.TUNAI,
+                  paymentCategoryAudit.BANK,
+                  paymentCategoryAudit.EWALLET,
+                ] as const
+              ).map((bucket) => {
+                const isActive = categoryFilter === bucket.category;
+                return (
+                  <button
+                    key={bucket.category}
+                    type="button"
+                    onClick={() => {
+                      setCategoryFilter(bucket.category);
+                      if (
+                        bucket.category !== 'ALL' &&
+                        methodFilter !== 'ALL' &&
+                        getPaymentCategory(methodFilter) !== bucket.category
+                      ) {
+                        setMethodFilter('ALL');
+                      }
+                    }}
+                    data-testid={`daily-category-filter-${bucket.category}`}
+                    className={`p-3 rounded-2xl text-left transition-all cursor-pointer border flex items-center justify-between gap-2.5 ${
+                      isActive
+                        ? 'bg-emerald-500/20 border-emerald-400/60 shadow-[0_6px_20px_rgba(16,185,129,0.2)]'
+                        : 'bg-slate-950/80 border-white/10 hover:border-cyan-400/40 hover:bg-slate-900/90'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Payment3DIcon kind={bucket.category} size="md" />
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-white truncate">
+                          {bucket.label}
+                        </div>
+                        <div className="text-[10px] text-slate-400 truncate">
+                          {bucket.methodsSubtitle} · {bucket.count}x ({bucket.percentage}%)
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right font-mono tabular-nums shrink-0">
+                      <div
+                        data-testid={`daily-category-total-${bucket.category}`}
+                        className={`text-xs font-bold ${
+                          isActive ? 'text-emerald-300' : 'text-emerald-400'
+                        }`}
+                      >
+                        {formatIDR(bucket.total)}
+                      </div>
+                      <div className="text-[10px] text-slate-400">{bucket.count} Transaksi</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="relative flex-1 min-w-[220px]">
               <Search className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -742,13 +826,16 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                   key={t}
                   type="button"
                   onClick={() => setTagFilter(t)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer ${
                     tagFilter === t
                       ? 'bg-slate-800 text-emerald-300 border border-emerald-500/30 font-semibold'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  {t === 'ALL' ? 'Semua Pos' : t === 'OPERASIONAL' ? 'Belanja & Ops' : 'Jajan Aira'}
+                  <Payment3DIcon kind={t} size="xs" />
+                  <span>
+                    {t === 'ALL' ? 'Semua Pos' : t === 'OPERASIONAL' ? 'Belanja & Ops' : 'Jajan Aira'}
+                  </span>
                 </button>
               ))}
             </div>
@@ -761,14 +848,25 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                 <button
                   key={m}
                   type="button"
-                  onClick={() => setMethodFilter(m)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium whitespace-nowrap shrink-0 cursor-pointer ${
+                  onClick={() => {
+                    setMethodFilter(m);
+                    if (
+                      m !== 'ALL' &&
+                      categoryFilter !== 'ALL' &&
+                      getPaymentCategory(m) !== categoryFilter
+                    ) {
+                      setCategoryFilter('ALL');
+                    }
+                  }}
+                  data-testid={`daily-method-filter-${m}`}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 cursor-pointer ${
                     methodFilter === m
                       ? 'bg-emerald-500 text-slate-950 font-semibold'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  {m === 'ALL' ? 'Semua Metode' : m}
+                  <Payment3DIcon kind={m} size="xs" />
+                  <span>{m === 'ALL' ? 'Semua Metode' : m}</span>
                 </button>
               ))}
             </div>
@@ -794,15 +892,21 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                 })}
               </select>
 
-              {(searchQuery || methodFilter !== 'ALL' || tagFilter !== 'ALL' || dateFilter !== 'ALL') && (
+              {(searchQuery ||
+                categoryFilter !== 'ALL' ||
+                methodFilter !== 'ALL' ||
+                tagFilter !== 'ALL' ||
+                dateFilter !== 'ALL') && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearchQuery('');
+                    setCategoryFilter('ALL');
                     setMethodFilter('ALL');
                     setTagFilter('ALL');
                     setDateFilter('ALL');
                   }}
+                  data-testid="daily-reset-filters-btn"
                   className="px-2.5 py-1 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-rose-300 text-xs font-medium cursor-pointer"
                 >
                   Reset Filter
@@ -908,7 +1012,10 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                           ))}
                         </select>
                       ) : (
-                        item.paymentMethod
+                        <span className="inline-flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-white/10">
+                          <Payment3DIcon kind={item.paymentMethod} size="xs" />
+                          <span>{item.paymentMethod}</span>
+                        </span>
                       )}
                     </td>
                     <td className="py-2.5 pl-3 text-right whitespace-nowrap">
@@ -974,9 +1081,25 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
             <tfoot>
               <tr className="border-t border-slate-700 font-semibold text-xs">
                 <td colSpan={4} className="pt-3 text-slate-300">
-                  TOTAL PENGELUARAN TERFILTER ({filteredDaily.length} Transaksi)
+                  <div className="inline-flex items-center gap-2">
+                    <Payment3DIcon
+                      kind={methodFilter !== 'ALL' ? methodFilter : categoryFilter}
+                      size="sm"
+                    />
+                    <span data-testid="daily-filtered-total-label">
+                      TOTAL PENGELUARAN TERFILTER
+                      {categoryFilter !== 'ALL'
+                        ? ` · KATEGORI ${paymentCategoryAudit[categoryFilter].label.toUpperCase()}`
+                        : ''}
+                      {methodFilter !== 'ALL' ? ` · METODE ${methodFilter}` : ''} ({filteredDaily.length}{' '}
+                      Transaksi)
+                    </span>
+                  </div>
                 </td>
-                <td className="pt-3 px-3 text-right font-mono tabular-nums text-emerald-400 text-sm">
+                <td
+                  data-testid="daily-filtered-total-amount"
+                  className="pt-3 px-3 text-right font-mono tabular-nums text-emerald-400 text-sm"
+                >
                   {formatIDR(filteredDailyTotal)}
                 </td>
                 <td colSpan={2} />
@@ -1145,7 +1268,10 @@ export const DailyTrackerView: React.FC<DailyTrackerViewProps> = ({
                           ))}
                         </select>
                       ) : (
-                        he.paymentMethod
+                        <span className="inline-flex items-center justify-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-white/10">
+                          <Payment3DIcon kind={he.paymentMethod} size="xs" />
+                          <span>{he.paymentMethod}</span>
+                        </span>
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-slate-400">

@@ -19,8 +19,9 @@ import {
   SubscriptionDebtItem,
   VariableCostItem,
 } from '../types/finance';
-import { formatIDR } from '../utils/calculations';
+import { computeFilteredFixedCostSummary, formatIDR } from '../utils/calculations';
 import { ActionPopupData } from './Modals';
+import { Payment3DIcon } from './Payment3DIcon';
 
 interface MonthlyBudgetViewProps {
   period: MonthlyPeriodData;
@@ -144,21 +145,13 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
     ])
   );
 
-  const filteredFixedCosts = period.fixedCosts.filter((item) => {
-    const matchesMethod =
-      fixedMethodFilter === 'ALL' || item.methodOrPriority === fixedMethodFilter;
-    const matchesStatus =
-      fixedStatusFilter === 'ALL' ||
-      (fixedStatusFilter === 'PAID' && item.isPaid) ||
-      (fixedStatusFilter === 'UNPAID' && !item.isPaid);
-    const q = fixedSearchQuery.trim().toLowerCase();
-    const matchesSearch =
-      !q ||
-      item.title.toLowerCase().includes(q) ||
-      item.dueDay.toLowerCase().includes(q) ||
-      item.methodOrPriority.toLowerCase().includes(q);
-    return matchesMethod && matchesStatus && matchesSearch;
-  });
+  const filteredFixedSummary = computeFilteredFixedCostSummary(
+    period.fixedCosts,
+    fixedMethodFilter,
+    fixedStatusFilter,
+    fixedSearchQuery
+  );
+  const filteredFixedCosts = filteredFixedSummary.matchingItems;
 
   const startInlineEdit = (
     id: string,
@@ -285,10 +278,25 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="text-right font-mono tabular-nums text-xs">
-              <span className="text-slate-300">Rencana: {formatIDR(summary.fixedCostPlanned)}</span>
-              <span className="mx-2 text-slate-500">·</span>
-              <span className="text-emerald-400 font-semibold">Aktual: {formatIDR(summary.fixedCostActual)}</span>
+            <div className="text-right font-mono tabular-nums text-xs flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/70 border border-white/10">
+              <Payment3DIcon
+                kind={fixedMethodFilter === 'ALL' ? 'ALL' : fixedMethodFilter}
+                size="sm"
+              />
+              <div>
+                <span className="text-[10px] uppercase tracking-wider text-cyan-300 font-semibold block">
+                  {fixedMethodFilter === 'ALL'
+                    ? `Total Aktif Semua Kanal (${filteredFixedSummary.unpaidCount} Pos)`
+                    : `Total Kanal ${fixedMethodFilter} (${filteredFixedSummary.unpaidCount} Pos Belum Lunas)`}
+                </span>
+                <span className="text-slate-300">
+                  Rencana: {formatIDR(filteredFixedSummary.activePlannedTotal)}
+                </span>
+                <span className="mx-1.5 text-slate-500">·</span>
+                <span className="text-emerald-400 font-semibold">
+                  Aktual: {formatIDR(filteredFixedSummary.activeActualTotal)}
+                </span>
+              </div>
             </div>
             <button
               type="button"
@@ -302,75 +310,119 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
         </div>
 
         {/* FILTER BAR: METODE / KANAL, STATUS LUNAS & PENCARIAN POS OPERASIONAL */}
-        <div className="mt-4 p-3.5 rounded-2xl liquid-glass-inset border border-white/10 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-semibold text-slate-300 mr-1">
-              Filter Metode / Kanal:
+        <div className="mt-4 p-3.5 rounded-2xl liquid-glass-inset border border-white/10 space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-300 mr-1">
+                Filter Metode / Kanal:
+              </span>
+              <button
+                type="button"
+                onClick={() => setFixedMethodFilter('ALL')}
+                data-testid="fixed-filter-method-ALL"
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-mono font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer ${
+                  fixedMethodFilter === 'ALL'
+                    ? 'bg-emerald-500 text-slate-950 shadow'
+                    : 'bg-slate-900/80 text-slate-300 hover:text-white border border-white/10'
+                }`}
+              >
+                <Payment3DIcon kind="ALL" size="xs" />
+                <span>Semua ({period.fixedCosts.length})</span>
+              </button>
+              {allFixedChannels.map((ch) => {
+                const count = period.fixedCosts.filter((f) => f.methodOrPriority === ch).length;
+                return (
+                  <button
+                    key={ch}
+                    type="button"
+                    onClick={() => setFixedMethodFilter(ch)}
+                    data-testid={`fixed-filter-method-${ch}`}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-mono font-medium inline-flex items-center gap-1.5 transition-all cursor-pointer ${
+                      fixedMethodFilter === ch
+                        ? 'bg-emerald-500 text-slate-950 font-semibold shadow'
+                        : 'bg-slate-900/80 text-slate-300 hover:text-white border border-white/10'
+                    }`}
+                  >
+                    <Payment3DIcon kind={ch} size="xs" />
+                    <span>
+                      {ch} {count > 0 ? `(${count})` : ''}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
+                {(
+                  [
+                    { id: 'ALL', label: 'Semua' },
+                    { id: 'UNPAID', label: 'Belum Lunas' },
+                    { id: 'PAID', label: 'Lunas' },
+                  ] as const
+                ).map((st) => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setFixedStatusFilter(st.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium cursor-pointer ${
+                      fixedStatusFilter === st.id
+                        ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-400/40 font-semibold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+
+              <input
+                type="text"
+                value={fixedSearchQuery}
+                onChange={(e) => setFixedSearchQuery(e.target.value)}
+                placeholder="Cari Tgl / Keterangan / Kanal..."
+                aria-label="Cari pos pengeluaran tetap"
+                className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-100 placeholder-slate-500 min-w-[180px]"
+              />
+            </div>
+          </div>
+
+          {/* RINGKASAN TOTAL PER KANAL (GOPAY, DANA, OPTIONAL, DLL) DENGAN IKON 3D */}
+          <div
+            data-testid="fixed-cost-channel-totals-strip"
+            className="pt-2.5 border-t border-white/10 flex flex-wrap items-center gap-2"
+          >
+            <span className="text-[11px] text-slate-400 font-medium">
+              Rekap Total per Kanal:
             </span>
-            <button
-              type="button"
-              onClick={() => setFixedMethodFilter('ALL')}
-              data-testid="fixed-filter-method-ALL"
-              className={`px-2.5 py-1 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
-                fixedMethodFilter === 'ALL'
-                  ? 'bg-emerald-500 text-slate-950 shadow'
-                  : 'bg-slate-900/80 text-slate-300 hover:text-white border border-white/10'
-              }`}
-            >
-              Semua ({period.fixedCosts.length})
-            </button>
-            {allFixedChannels.map((ch) => {
-              const count = period.fixedCosts.filter((f) => f.methodOrPriority === ch).length;
+            {filteredFixedSummary.channelBreakdown.map((cb) => {
+              const isSelected =
+                fixedMethodFilter.toUpperCase() === cb.method.toUpperCase();
               return (
                 <button
-                  key={ch}
+                  key={cb.method}
                   type="button"
-                  onClick={() => setFixedMethodFilter(ch)}
-                  data-testid={`fixed-filter-method-${ch}`}
-                  className={`px-2.5 py-1 rounded-xl text-xs font-mono font-medium transition-all cursor-pointer ${
-                    fixedMethodFilter === ch
-                      ? 'bg-emerald-500 text-slate-950 font-semibold shadow'
-                      : 'bg-slate-900/80 text-slate-300 hover:text-white border border-white/10'
+                  onClick={() =>
+                    setFixedMethodFilter(isSelected ? 'ALL' : cb.method)
+                  }
+                  data-testid={`fixed-channel-summary-card-${cb.method}`}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-mono inline-flex items-center gap-1.5 transition-all cursor-pointer border ${
+                    isSelected
+                      ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200 font-semibold shadow-sm'
+                      : 'bg-slate-950/75 border-white/10 text-slate-300 hover:border-cyan-400/40 hover:text-white'
                   }`}
                 >
-                  {ch} {count > 0 ? `(${count})` : ''}
+                  <Payment3DIcon kind={cb.method} size="xs" />
+                  <span>Total {cb.method}:</span>
+                  <strong className="text-emerald-400">
+                    {formatIDR(cb.unpaidActual)}
+                  </strong>
+                  <span className="text-[10px] text-slate-400">
+                    ({cb.unpaidCount} Aktif / {cb.totalCount} Pos)
+                  </span>
                 </button>
               );
             })}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
-              {(
-                [
-                  { id: 'ALL', label: 'Semua' },
-                  { id: 'UNPAID', label: 'Belum Lunas' },
-                  { id: 'PAID', label: 'Lunas' },
-                ] as const
-              ).map((st) => (
-                <button
-                  key={st.id}
-                  type="button"
-                  onClick={() => setFixedStatusFilter(st.id)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium cursor-pointer ${
-                    fixedStatusFilter === st.id
-                      ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-400/40 font-semibold'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {st.label}
-                </button>
-              ))}
-            </div>
-
-            <input
-              type="text"
-              value={fixedSearchQuery}
-              onChange={(e) => setFixedSearchQuery(e.target.value)}
-              placeholder="Cari Tgl / Keterangan / Kanal..."
-              aria-label="Cari pos pengeluaran tetap"
-              className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-100 placeholder-slate-500 min-w-[180px]"
-            />
           </div>
         </div>
 
@@ -545,47 +597,50 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                           )}
                         </div>
                       ) : (
-                        <select
-                          value={item.methodOrPriority}
-                          onChange={(e) => {
-                            const nextMethod = e.target.value;
-                            if (nextMethod === '__EDIT_CUSTOM__') {
-                              startInlineEdit(
-                                item.id,
-                                item.planned,
-                                item.actual,
-                                item.isPaid,
-                                item.dueDay,
-                                item.title,
-                                item.methodOrPriority
+                        <div className="inline-flex items-center gap-1.5">
+                          <Payment3DIcon kind={item.methodOrPriority} size="sm" />
+                          <select
+                            value={item.methodOrPriority}
+                            onChange={(e) => {
+                              const nextMethod = e.target.value;
+                              if (nextMethod === '__EDIT_CUSTOM__') {
+                                startInlineEdit(
+                                  item.id,
+                                  item.planned,
+                                  item.actual,
+                                  item.isPaid,
+                                  item.dueDay,
+                                  item.title,
+                                  item.methodOrPriority
+                                );
+                                setIsEditCustomMethod(true);
+                                setEditCustomMethod(item.methodOrPriority);
+                                return;
+                              }
+                              const updatedItem: FixedCostItem = {
+                                ...item,
+                                methodOrPriority: nextMethod,
+                                updatedAt: new Date().toISOString(),
+                              };
+                              onUpdateFixedCost(updatedItem);
+                              onTriggerPopup?.(
+                                'REVISED',
+                                'UBAH METODE / KANAL FIXED COST',
+                                `Metode / Kanal "${item.title}" Diperbarui`,
+                                `Metode/Kanal untuk pos "${item.title}" berhasil diubah dari ${item.methodOrPriority} menjadi ${nextMethod} dan langsung disinkronkan ke database.`
                               );
-                              setIsEditCustomMethod(true);
-                              setEditCustomMethod(item.methodOrPriority);
-                              return;
-                            }
-                            const updatedItem: FixedCostItem = {
-                              ...item,
-                              methodOrPriority: nextMethod,
-                              updatedAt: new Date().toISOString(),
-                            };
-                            onUpdateFixedCost(updatedItem);
-                            onTriggerPopup?.(
-                              'REVISED',
-                              'UBAH METODE / KANAL FIXED COST',
-                              `Metode / Kanal "${item.title}" Diperbarui`,
-                              `Metode/Kanal untuk pos "${item.title}" berhasil diubah dari ${item.methodOrPriority} menjadi ${nextMethod} dan langsung disinkronkan ke database.`
-                            );
-                          }}
-                          aria-label={`Pilih Metode Kanal ${item.title}`}
-                          className="px-2 py-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-white/10 hover:border-emerald-400/40 font-mono text-xs text-emerald-300 cursor-pointer"
-                        >
-                          {allFixedChannels.map((ch) => (
-                            <option key={ch} value={ch}>
-                              {ch}
-                            </option>
-                          ))}
-                          <option value="__EDIT_CUSTOM__">+ Revisi / Ketik Kanal...</option>
-                        </select>
+                            }}
+                            aria-label={`Pilih Metode Kanal ${item.title}`}
+                            className="px-2 py-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-white/10 hover:border-emerald-400/40 font-mono text-xs text-emerald-300 cursor-pointer"
+                          >
+                            {allFixedChannels.map((ch) => (
+                              <option key={ch} value={ch}>
+                                {ch}
+                              </option>
+                            ))}
+                            <option value="__EDIT_CUSTOM__">+ Revisi / Ketik Kanal...</option>
+                          </select>
+                        </div>
                       )}
                     </td>
                     <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-300">
@@ -790,19 +845,18 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
             </tbody>
             <tfoot>
               {(() => {
-                const paidPlannedSum = period.fixedCosts
-                  .filter((fc) => fc.isPaid)
-                  .reduce((acc, fc) => acc + (fc.planned || 0), 0);
-                const paidActualSum = period.fixedCosts
-                  .filter((fc) => fc.isPaid)
-                  .reduce((acc, fc) => acc + (fc.actual || 0), 0);
+                const paidPlannedSum = filteredFixedSummary.paidPlannedTotal;
+                const paidActualSum = filteredFixedSummary.paidActualTotal;
+                const isChannelSpecific = fixedMethodFilter !== 'ALL';
 
                 return (
                   <>
-                    {(paidPlannedSum > 0 || paidActualSum > 0) && (
+                    {(paidPlannedSum > 0 || paidActualSum > 0 || filteredFixedSummary.paidCount > 0) && (
                       <tr className="border-t border-slate-800/80 text-[11px] text-emerald-300/90">
                         <td colSpan={3} className="pt-2.5">
-                          TAGIHAN SUDAH LUNAS (OTOMATIS MENGURANGI TOTAL FIXED COST)
+                          TAGIHAN SUDAH LUNAS{' '}
+                          {isChannelSpecific ? `KANAL ${fixedMethodFilter.toUpperCase()} ` : ''}
+                          (OTOMATIS MENGURANGI TOTAL FIXED COST)
                         </td>
                         <td className="pt-2.5 px-3 text-right font-mono tabular-nums">
                           -{formatIDR(paidPlannedSum)}
@@ -811,52 +865,97 @@ export const MonthlyBudgetView: React.FC<MonthlyBudgetViewProps> = ({
                           -{formatIDR(paidActualSum)}
                         </td>
                         <td colSpan={2} className="pt-2.5 pl-3 text-right font-mono text-[10px]">
-                          {summary.paidFixedCount} Pos Lunas ✅
+                          {filteredFixedSummary.paidCount} Pos Lunas ✅
                         </td>
                       </tr>
                     )}
                     <tr className="border-t border-slate-700 font-semibold text-xs">
                       <td colSpan={3} className="pt-3 text-slate-200">
-                        TOTAL PENGELUARAN TETAP (FIXED COST)
-                        <span className="ml-2 text-[10px] font-normal text-slate-400">
-                          (Sisa Tagihan Aktif Belum Lunas: {summary.totalFixedCount - summary.paidFixedCount} Pos)
-                        </span>
+                        <div className="inline-flex flex-wrap items-center gap-2">
+                          <Payment3DIcon
+                            kind={isChannelSpecific ? fixedMethodFilter : 'ALL'}
+                            size="sm"
+                          />
+                          <span data-testid="fixed-cost-total-label">
+                            TOTAL PENGELUARAN TETAP (FIXED COST)
+                            {isChannelSpecific ? ` — TOTAL ${fixedMethodFilter.toUpperCase()}` : ''}
+                          </span>
+                          <span
+                            data-testid="fixed-cost-unpaid-count-badge"
+                            className="text-[10px] font-normal text-slate-300 px-2 py-0.5 rounded-md bg-slate-900/90 border border-white/10"
+                          >
+                            (Sisa Tagihan Aktif Belum Lunas: {filteredFixedSummary.unpaidCount} Pos)
+                          </span>
+                        </div>
                       </td>
                       <td
                         data-testid="fixed-cost-total-planned"
                         className="pt-3 px-3 text-right font-mono tabular-nums text-slate-100"
                       >
-                        {formatIDR(summary.fixedCostPlanned)}
+                        {formatIDR(filteredFixedSummary.activePlannedTotal)}
                       </td>
                       <td
                         data-testid="fixed-cost-total-actual"
                         className="pt-3 px-3 text-right font-mono tabular-nums text-emerald-400"
                       >
-                        {formatIDR(summary.fixedCostActual)}
+                        {formatIDR(filteredFixedSummary.activeActualTotal)}
                       </td>
                       <td colSpan={2} className="pt-3 pl-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onTriggerPopup?.(
-                              'SUCCESS',
-                              'SIMPAN TOTAL FIXED COST',
-                              'Total Pengeluaran Tetap (Fixed Cost) Tersimpan',
-                              `Rekapitulasi Fixed Cost berhasil disimpan. Total Rencana Aktif: ${formatIDR(
-                                summary.fixedCostPlanned
-                              )} · Total Aktual Aktif: ${formatIDR(
-                                summary.fixedCostActual
-                              )} (${summary.paidFixedCount}/${summary.totalFixedCount} Pos Lunas).`
-                            )
-                          }
-                          data-testid="save-fixed-cost-summary-btn"
-                          className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <Save className="w-3 h-3" />
-                          <span>Simpan</span>
-                        </button>
+                        <div className="inline-flex items-center gap-1.5">
+                          {isChannelSpecific && (
+                            <button
+                              type="button"
+                              onClick={() => setFixedMethodFilter('ALL')}
+                              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono cursor-pointer"
+                            >
+                              Semua Kanal
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onTriggerPopup?.(
+                                'SUCCESS',
+                                'SIMPAN TOTAL FIXED COST',
+                                `Total Pengeluaran Tetap ${
+                                  isChannelSpecific ? `(${fixedMethodFilter})` : ''
+                                } Tersimpan`,
+                                `Rekapitulasi Fixed Cost ${
+                                  isChannelSpecific
+                                    ? `Kanal ${fixedMethodFilter}`
+                                    : 'Semua Kanal'
+                                } berhasil disimpan. Total Rencana Aktif: ${formatIDR(
+                                  filteredFixedSummary.activePlannedTotal
+                                )} · Total Aktual Aktif: ${formatIDR(
+                                  filteredFixedSummary.activeActualTotal
+                                )} (Sisa Tagihan Aktif Belum Lunas: ${
+                                  filteredFixedSummary.unpaidCount
+                                } Pos).`
+                              )
+                            }
+                            data-testid="save-fixed-cost-summary-btn"
+                            className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <Save className="w-3 h-3" />
+                            <span>Simpan</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
+                    {isChannelSpecific && (
+                      <tr className="text-[11px] text-slate-400">
+                        <td colSpan={3} className="pt-1.5 font-normal">
+                          Total Keseluruhan Semua Kanal ({summary.totalFixedCount - summary.paidFixedCount} Pos Aktif Belum Lunas dari {summary.totalFixedCount} Pos)
+                        </td>
+                        <td className="pt-1.5 px-3 text-right font-mono tabular-nums text-slate-400">
+                          {formatIDR(summary.fixedCostPlanned)}
+                        </td>
+                        <td className="pt-1.5 px-3 text-right font-mono tabular-nums text-slate-300">
+                          {formatIDR(summary.fixedCostActual)}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    )}
                   </>
                 );
               })()}

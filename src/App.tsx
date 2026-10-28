@@ -851,7 +851,7 @@ export default function App() {
               if (res.ok) {
                 setSyncQueue((prev) =>
                   prev.map((q) =>
-                    q.id === queueItem.id ? { ...q, isSynced: true, syncedAt: nowIso } : q
+                    q.queueId === queueItem.queueId ? { ...q, isSynced: true, syncedAt: nowIso } : q
                   )
                 );
                 setSyncConfig((prev) => ({ ...prev, lastSyncedAt: nowIso }));

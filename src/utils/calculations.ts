@@ -2,6 +2,7 @@ import {
   AccountBalanceItem,
   BalanceRevisionEntry,
   DailyExpenseItem,
+  FixedCostItem,
   HangoutExpenseItem,
   MonthlyPeriodData,
   PeriodFinancialSummary,
@@ -645,3 +646,225 @@ export function exportPeriodToCSV(period: MonthlyPeriodData): string {
 
   return lines.join('\n');
 }
+
+export type PaymentCategoryType = 'TUNAI' | 'BANK' | 'EWALLET';
+
+/**
+ * Classifies any payment method/channel into one of the 3 audit categories:
+ * - TUNAI (COD, TUNAI, CASH)
+ * - EWALLET (GOPAY, DANA, QRIS, OVO, SHOPEEPAY, LINKAJA)
+ * - BANK (BRI, BCA, BSI, TF, MANDIRI, BNI, etc.)
+ */
+export function getPaymentCategory(method: string): PaymentCategoryType {
+  const upper = (method || '').trim().toUpperCase();
+  if (upper === 'COD' || upper === 'TUNAI' || upper === 'CASH') {
+    return 'TUNAI';
+  }
+  if (
+    upper === 'GOPAY' ||
+    upper === 'DANA' ||
+    upper === 'QRIS' ||
+    upper === 'OVO' ||
+    upper === 'SHOPEEPAY' ||
+    upper === 'LINKAJA'
+  ) {
+    return 'EWALLET';
+  }
+  return 'BANK';
+}
+
+export interface DailyCategoryAuditBucket {
+  category: 'ALL' | PaymentCategoryType;
+  label: string;
+  methodsSubtitle: string;
+  count: number;
+  total: number;
+  percentage: number;
+}
+
+export function computeDailyPaymentCategoryAudit(
+  expenses: DailyExpenseItem[]
+): Record<'ALL' | PaymentCategoryType, DailyCategoryAuditBucket> {
+  const grandTotal = expenses.reduce((sum, item) => sum + (item.total || 0), 0);
+
+  let tunaiCount = 0;
+  let tunaiTotal = 0;
+  let bankCount = 0;
+  let bankTotal = 0;
+  let ewalletCount = 0;
+  let ewalletTotal = 0;
+
+  for (const item of expenses) {
+    const cat = getPaymentCategory(item.paymentMethod);
+    const amount = item.total || 0;
+    if (cat === 'TUNAI') {
+      tunaiCount += 1;
+      tunaiTotal += amount;
+    } else if (cat === 'EWALLET') {
+      ewalletCount += 1;
+      ewalletTotal += amount;
+    } else {
+      bankCount += 1;
+      bankTotal += amount;
+    }
+  }
+
+  const pct = (val: number) => (grandTotal > 0 ? Math.round((val / grandTotal) * 100) : 0);
+
+  return {
+    ALL: {
+      category: 'ALL',
+      label: 'Semua Kategori',
+      methodsSubtitle: 'Tunai + Bank + E-Wallet',
+      count: expenses.length,
+      total: grandTotal,
+      percentage: expenses.length > 0 ? 100 : 0,
+    },
+    TUNAI: {
+      category: 'TUNAI',
+      label: 'Tunai (Cash / COD)',
+      methodsSubtitle: 'COD · Tunai Langsung',
+      count: tunaiCount,
+      total: tunaiTotal,
+      percentage: pct(tunaiTotal),
+    },
+    BANK: {
+      category: 'BANK',
+      label: 'Bank & Transfer',
+      methodsSubtitle: 'BRI · BCA · BSI · TF',
+      count: bankCount,
+      total: bankTotal,
+      percentage: pct(bankTotal),
+    },
+    EWALLET: {
+      category: 'EWALLET',
+      label: 'E-Wallet Digital',
+      methodsSubtitle: 'GoPay · DANA · QRIS',
+      count: ewalletCount,
+      total: ewalletTotal,
+      percentage: pct(ewalletTotal),
+    },
+  };
+}
+
+export interface FixedCostChannelBreakdownItem {
+  method: string;
+  unpaidCount: number;
+  paidCount: number;
+  totalCount: number;
+  unpaidPlanned: number;
+  unpaidActual: number;
+  allPlanned: number;
+  allActual: number;
+}
+
+export interface FilteredFixedCostSummary {
+  isFiltered: boolean;
+  activeMethodLabel: string;
+  matchingItems: FixedCostItem[];
+  unpaidCount: number;
+  paidCount: number;
+  totalCount: number;
+  activePlannedTotal: number;
+  activeActualTotal: number;
+  paidPlannedTotal: number;
+  paidActualTotal: number;
+  allPlannedTotal: number;
+  allActualTotal: number;
+  channelBreakdown: FixedCostChannelBreakdownItem[];
+}
+
+/**
+ * Computes dynamic totals for 01. Pengeluaran Tetap (Fixed Cost) based on the clicked
+ * payment channel/method (e.g. GOPAY, DANA, BRI, Optional, or ALL), status filter, and search query.
+ */
+export function computeFilteredFixedCostSummary(
+  fixedCosts: FixedCostItem[],
+  methodFilter = 'ALL',
+  statusFilter: 'ALL' | 'UNPAID' | 'PAID' = 'ALL',
+  searchQuery = ''
+): FilteredFixedCostSummary {
+  const normMethod = (methodFilter || 'ALL').trim().toUpperCase();
+  const q = (searchQuery || '').trim().toLowerCase();
+
+  // Channel breakdown across all fixedCosts (grouped by uppercase methodOrPriority)
+  const channelMap = new Map<string, FixedCostChannelBreakdownItem>();
+  for (const fc of fixedCosts) {
+    const rawKey = (fc.methodOrPriority || 'Optional').trim();
+    const upperKey = rawKey.toUpperCase();
+    const existing = channelMap.get(upperKey) || {
+      method: rawKey,
+      unpaidCount: 0,
+      paidCount: 0,
+      totalCount: 0,
+      unpaidPlanned: 0,
+      unpaidActual: 0,
+      allPlanned: 0,
+      allActual: 0,
+    };
+    existing.totalCount += 1;
+    existing.allPlanned += fc.planned || 0;
+    existing.allActual += fc.actual || 0;
+    if (fc.isPaid) {
+      existing.paidCount += 1;
+    } else {
+      existing.unpaidCount += 1;
+      existing.unpaidPlanned += fc.planned || 0;
+      existing.unpaidActual += fc.actual || 0;
+    }
+    channelMap.set(upperKey, existing);
+  }
+
+  // Items matching method + search (used to compute unpaid vs paid within the selected channel)
+  const channelAndSearchItems = fixedCosts.filter((fc) => {
+    const matchesMethod =
+      normMethod === 'ALL' || (fc.methodOrPriority || '').trim().toUpperCase() === normMethod;
+    const matchesQuery =
+      !q ||
+      fc.title.toLowerCase().includes(q) ||
+      fc.dueDay.toLowerCase().includes(q) ||
+      fc.methodOrPriority.toLowerCase().includes(q);
+    return matchesMethod && matchesQuery;
+  });
+
+  // Items also matching statusFilter (the rows displayed in the table)
+  const matchingItems = channelAndSearchItems.filter((fc) => {
+    if (statusFilter === 'UNPAID') return !fc.isPaid;
+    if (statusFilter === 'PAID') return fc.isPaid;
+    return true;
+  });
+
+  const unpaidItems = channelAndSearchItems.filter((fc) => !fc.isPaid);
+  const paidItems = channelAndSearchItems.filter((fc) => fc.isPaid);
+
+  const unpaidPlanned = unpaidItems.reduce((acc, fc) => acc + (fc.planned || 0), 0);
+  const unpaidActual = unpaidItems.reduce((acc, fc) => acc + (fc.actual || 0), 0);
+  const paidPlannedTotal = paidItems.reduce((acc, fc) => acc + (fc.planned || 0), 0);
+  const paidActualTotal = paidItems.reduce((acc, fc) => acc + (fc.actual || 0), 0);
+  const allPlannedTotal = channelAndSearchItems.reduce((acc, fc) => acc + (fc.planned || 0), 0);
+  const allActualTotal = channelAndSearchItems.reduce((acc, fc) => acc + (fc.actual || 0), 0);
+
+  // If the user explicitly filters by statusFilter === 'PAID', show the paid sum; otherwise show active unpaid sum
+  const activePlannedTotal = statusFilter === 'PAID' ? paidPlannedTotal : unpaidPlanned;
+  const activeActualTotal = statusFilter === 'PAID' ? paidActualTotal : unpaidActual;
+
+  const isFiltered = normMethod !== 'ALL' || statusFilter !== 'ALL' || q.length > 0;
+  const activeMethodLabel = normMethod === 'ALL' ? 'SEMUA KANAL' : methodFilter;
+
+  return {
+    isFiltered,
+    activeMethodLabel,
+    matchingItems,
+    unpaidCount: unpaidItems.length,
+    paidCount: paidItems.length,
+    totalCount: channelAndSearchItems.length,
+    activePlannedTotal,
+    activeActualTotal,
+    paidPlannedTotal,
+    paidActualTotal,
+    allPlannedTotal,
+    allActualTotal,
+    channelBreakdown: Array.from(channelMap.values()),
+  };
+}
+
